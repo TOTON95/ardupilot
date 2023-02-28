@@ -27,6 +27,7 @@
 #include "AP_BattMonitor_Synthetic_Current.h"
 #include "AP_BattMonitor_AD7091R5.h"
 #include "AP_BattMonitor_Scripting.h"
+#include "AP_BattMonitor_ACS37800.h"
 
 #include <AP_HAL/AP_HAL.h>
 
@@ -455,7 +456,7 @@ AP_BattMonitor::init()
                 drivers[instance] = new AP_BattMonitor_Analog(*this, state[instance], _params[instance]);
                 break;
 #endif
-#if AP_BATTERY_SMBUS_SOLO_ENABLED
+#if AP_BATTMON_SMBUS_ENABLE
             case Type::SOLO:
                 drivers[instance] = new AP_BattMonitor_SMBus_Solo(*this, state[instance], _params[instance]);
                 break;
@@ -571,6 +572,11 @@ AP_BattMonitor::init()
                 drivers[instance] = new AP_BattMonitor_Scripting(*this, state[instance], _params[instance]);
                 break;
 #endif // AP_BATTERY_SCRIPTING_ENABLED
+#if AP_BATTERY_ACS37800_ENABLED
+            case Type::ACS37800_I2C:
+                drivers[instance] = new AP_BattMonitor_ACS37800(*this, state[instance], _params[instance]);
+                break;
+#endif // AP_BATTERY_ACS37800_ENABLED
             case Type::NONE:
             default:
                 break;
