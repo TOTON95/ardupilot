@@ -1,0 +1,80 @@
+###########################################################################################################################################################
+# mRo Control ONE Autopilot
+# STM32H747-based
+# 16x PWM / IO - DMA capable 3v3 logic
+# Connectors: LSHM-140 series
+# 2x IMUs (IIM-42652 and ASM330LHH)+ MMC5983 Mag
+# ILPS22QSTR Baro, FRAM (256Bb)
+# 3x TELEM ports (w/flow control)
+# 2x GPS ports (serial+independent I2C)
+# 2x extra UARTs (+1 labeled as FrSky)
+# 2x external I2C, 1x external SPI, 1x SDIO/SDMMC (independent from SD)
+# 2x CAN
+# 10x GPIO pins (AUX)
+# 8x Analog inputs (0-3.3V)
+# 10/100M Ethernet
+# Onboard 3 color LED
+# SDCard bay (with muxed external lanes in connector)
+# Uncased Weight and Dimensions:
+# Weight: 10.54g (.3718oz)
+# Width: 32.6mm
+# Length: 53.6mm
+# M10125A - Initial Release May 2023
+###########################################################################################################################################################
+
+MCU STM32H7xx STM32H747xx
+
+define SMPS_PWR
+define CORE_CM7
+
+USB_STRING_MANUFACTURER "mRo"
+USB_STRING_PRODUCT "ControlOne"
+
+OSCILLATOR_HZ 25000000
+
+APJ_BOARD_ID 1101
+
+FLASH_SIZE_KB 2048
+
+FLASH_RESERVE_START_KB 0
+FLASH_BOOTLOADER_LOAD_KB 128
+
+# PH6 RED LED, PH9 BLUE, PF7 GREEN
+PH6 LED_BOOTLOADER OUTPUT 
+
+# define all 3 to make LED output White.!?
+PH9 LED_ACTIVITY OUTPUT
+PF7 LED_ACTIVITY2 OUTPUT
+
+define HAL_LED_ON 0
+
+SERIAL_ORDER OTG1 USART2 UART7
+
+PD5 USART2_TX USART2
+PA3 USART2_RX USART2
+
+PE8 UART7_TX UART7
+PE7 UART7_RX UART7
+
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+#QSPI flash
+#PD11 QUADSPI_BK1_IO0 QUADSPI1
+#PF9 QUADSPI_BK1_IO1 QUADSPI1
+#PE2 QUADSPI_BK1_IO2 QUADSPI1
+#PD13 QUADSPI_BK1_IO3 QUADSPI1
+#PG6 QUADSPI_BK1_NCS QUADSPI1
+#PF10 QUADSPI_CLK QUADSPI1
+
+# Add CS pins to ensure they are high in bootloader
+PG10 IIM_42652_CS CS
+PI0  ASM330_CS CS
+PE4  MMC5983_CS CS
+PK1  FRAM_CS CS SPEED_VERYLOW NODMA
+PA15 EXTERNAL_CS CS
+PJ3  EXTERNAL_CS2 CS
+

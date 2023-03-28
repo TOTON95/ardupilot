@@ -1,0 +1,166 @@
+###########################################################################################################################################################
+# mRo Control ONE Autopilot
+# STM32H747-based + 256Mb external flash
+# -40C->125C temperature operating range
+# 16x PWM / IO - DMA capable 3v3 logic
+# Connectors: LSHM-140 series
+# 2x IMUs (IIM-42652 and ASM330LHH)+ MMC5983 Mag
+# ILPS22QSTR Baro, FRAM (256Bb)
+# 3x TELEM ports (w/flow control)
+# 2x GPS ports (serial+independent I2C)
+# 1x extra UART (+1 labeled as FrSky)
+# 2x external I2C, 1x external SPI, 1x SDIO/SDMMC (independent from SD)
+# 2x CAN
+# 10x GPIO pins (AUX)
+# 8x Analog inputs (0-3.3V)
+# 10/100M Ethernet
+# Onboard 3 color LED
+# SDCard bay (with muxed external lanes in connector)
+# Uncased Weight and Dimensions:
+# Weight: 10.54g (.3718oz)
+# Width:  
+# Length: 
+# M10125A - Initial Release May 2023
+###########################################################################################################################################################
+
+env OPTIMIZE -O2
+
+MCU STM32H7xx STM32H747xx
+define SMPS_PWR
+define CORE_CM7
+ENABLE_DFU_BOOT 1
+
+APJ_BOARD_ID 1101
+
+OSCILLATOR_HZ 25000000
+
+FLASH_SIZE_KB 2048
+FLASH_RESERVE_START_KB 128
+define HAL_STORAGE_SIZE 32768
+
+# EXT_FLASH_SIZE_MB 32
+# EXT_FLASH_RESERVE_START_KB 1024
+# EXT_FLASH_RESERVE_END_KB 448
+
+USB_STRING_MANUFACTURER "mRo"
+USB_STRING_PRODUCT "ControlOne"
+
+#RC Input
+PF6 TIM16_CH1 TIM16 RCININT PULLDOWN LOW
+
+# order of I2C buses
+I2C_ORDER I2C1 I2C2 I2C3 I2C4
+
+# First I2C bus (internal)
+PB8 I2C1_SCL I2C1
+PB9 I2C1_SDA I2C1
+# I2C2 bus.
+PF1 I2C2_SCL I2C2
+PF0 I2C2_SDA I2C2
+# I2C3 bus.
+PA8 I2C3_SCL I2C3
+PH8 I2C3_SDA I2C3
+# I2C4 bus
+PF14 I2C4_SCL I2C4
+PF15 I2C4_SDA I2C4
+
+# order of UARTs and suggested uses
+# USART2 TELEM1
+# USART6 TELEM2
+# UART7  TELEM3
+# USART1 GPS (+I2C2)
+# USART3 GPS2(+I2C3)
+# UART8 FRSKY Telem
+# UART4 DEBUG
+include serial_interfaces.inc
+
+include spi.inc
+
+# SD card mux
+PB14 SDMMC2_D0 SDMMC2
+PB15 SDMMC2_D1 SDMMC2
+PG11 SDMMC2_D2 SDMMC2
+PB4 SDMMC2_D3 SDMMC2
+PD6 SDMMC2_CK SDMMC2
+PA0 SDMMC2_CMD SDMMC2
+
+# external SDMMC interface
+PC8 SDMMC1_D0 SDMMC1
+PC9 SDMMC1_D1 SDMMC1
+PC10 SDMMC1_D2 SDMMC1
+PC11 SDMMC1_D3 SDMMC1
+PC12 SDMMC1_CK SDMMC1
+PD2 SDMMC1_CMD SDMMC1
+
+CANFD_SUPPORTED 8
+PH14 CAN1_RX CAN1
+PD1 CAN1_TX CAN1
+
+PB13 CAN2_TX CAN2
+PB12 CAN2_RX CAN2
+
+PA9 VBUS INPUT OPENDRAIN
+
+# Safety Switch Input
+PJ4 SAFETY_IN INPUT PULLDOWN
+define HAL_HAVE_SAFETY_SWITCH 1
+
+# PWM output for buzzer
+PF8 TIM13_CH1 TIM13 GPIO(66) ALARM
+
+# Battery Analog Sense Pins
+#PA0_C BATT_VOLTAGE_SENS ADC1 SCALE(1)
+#PA1_C BATT_CURRENT_SENS ADC1 SCALE(1)
+
+#PF5 VDD_5V_SENS ADC3 SCALE(2)
+#PF3 VDD_3V3_SENS ADC3 SCALE(1)
+
+
+# PWM outputs
+PJ11 TIM1_CH2 TIM1 PWM(1) GPIO(50)
+PJ9  TIM1_CH3 TIM1 PWM(2) GPIO(51)
+PE14 TIM1_CH4 TIM1 PWM(3) GPIO(52)
+PC6  TIM3_CH1 TIM3 PWM(4) GPIO(53)
+PB0  TIM3_CH3 TIM3 PWM(5) GPIO(54)
+PD12 TIM4_CH1 TIM4 PWM(6) GPIO(55)
+PB7  TIM4_CH2 TIM4 PWM(7) GPIO(56)
+PD14 TIM4_CH3 TIM4 PWM(8) GPIO(57)
+PD15 TIM4_CH4 TIM4 PWM(9) GPIO(58)
+PH10 TIM5_CH1 TIM5 PWM(10) GPIO(59)
+PH11 TIM5_CH2 TIM5 PWM(11) GPIO(60)
+PH12 TIM5_CH3 TIM5 PWM(12) GPIO(61)
+PI5  TIM8_CH1 TIM8 PWM(13) GPIO(62)
+PI6  TIM8_CH2 TIM8 PWM(14) GPIO(63)
+PI7  TIM8_CH3 TIM8 PWM(15) GPIO(64)
+PI2  TIM8_CH4 TIM8 PWM(16) GPIO(65)
+
+#GPIO outputs
+#PK2 GPIO(66)
+
+IMU Invensensev3 SPI:iim42652 ROTATION_NONE 
+#IMU ASM300LHH SPI:asm330 ROTATION_NONE
+
+COMPASS MMC5xx3 SPI:mmc5983 ROTATION_ROLL_180
+
+#BARO ILPS22 I2C:0:0x[ADDR]
+
+
+define HAL_PROBE_EXTERNAL_I2C_COMPASSES
+# Now some defines for logging and terrain data files.
+define HAL_BOARD_LOG_DIRECTORY "/APM/LOGS"
+define HAL_BOARD_TERRAIN_DIRECTORY "/APM/TERRAIN"
+
+# Enable RAMTROM parameter storage.
+define HAL_WITH_RAMTRON 1
+
+# Enable FAT filesystem support (needs a microSD defined via SDMMC).
+define HAL_OS_FATFS_IO 1
+
+# LED setup for PixracerLED driver
+PH6 LED_R OUTPUT HIGH GPIO(0)
+PF7  LED_G OUTPUT HIGH GPIO(1)
+PH9  LED_B OUTPUT HIGH GPIO(2)
+
+define HAL_GPIO_A_LED_PIN 0
+define HAL_GPIO_B_LED_PIN 1
+define HAL_GPIO_C_LED_PIN 2
