@@ -17,7 +17,8 @@
 
 # MCU class and specific type
 MCU STM32H7xx STM32H743xx
-
+define EXT_SMPS_PWR
+define STM32_HSE_BYPASS
 # USB setup
 USB_STRING_MANUFACTURER "mRo"
 

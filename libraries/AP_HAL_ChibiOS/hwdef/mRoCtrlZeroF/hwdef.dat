@@ -17,6 +17,8 @@
 
 # MCU class and specific type
 MCU STM32H7xx STM32H743xx
+define EXT_SMPS_PWR
+define STM32_HSE_BYPASS
 
 # board ID for firmware load
 APJ_BOARD_ID 1024
