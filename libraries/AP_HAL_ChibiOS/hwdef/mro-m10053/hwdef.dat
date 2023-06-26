@@ -1,0 +1,12 @@
+include ../f103-periph/hwdef.inc
+
+define CAN_APP_NODE_NAME "io.mrobotics.mro-sst-arspd"
+
+
+define HAL_AIRSPEED_BUS_DEFAULT 0
+
+# 10" DLVR sensor by default
+define HAL_AIRSPEED_TYPE_DEFAULT 10
+define AIRSPEED_MAX_SENSORS 1
+
+define HAL_PERIPH_ENABLE_AIRSPEED
