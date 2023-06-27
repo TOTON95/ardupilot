@@ -27,8 +27,16 @@
 #include <GCS_MAVLink/GCS.h>
 #include <stdio.h>
 #include <utility>
+#include <vector>
 
 extern const AP_HAL::HAL &hal;
+// float** ranges = {{0.25, 0.5, 1.0, 2.0, 4.0, 5.0, 10.0},{2.0, 4.0, 5.0, 10.0, 20.0, 30.0},{13.84, 22.14, 27.68, 55.36, 110.72,138.4}};
+std::vector<std::vector<float>> matrix;
+
+std::vector<float> row1 = {0.25, 0.5, 1.0, 2.0, 4.0, 5.0, 10.0};
+std::vector<float> row2 = {2.0, 4.0, 5.0, 10.0, 20.0, 30.0};
+std::vector<float> row3 = {13.84, 22.14, 27.68, 55.36, 110.72,138.4};
+
 
 #define MS4525D0_I2C_ADDR1 0x28
 #define MS4525D0_I2C_ADDR2 0x36
@@ -92,7 +100,7 @@ bool AP_Airspeed_ND::init()
     return false;
 
 found_sensor:
-    _dev->set_device_type(uint8_t(DevType::MS4525));
+    _dev->set_device_type(uint8_t(DevType::NDxxx));
     set_bus_id(_dev->get_bus_id());
 
     GCS_SEND_TEXT(MAV_SEVERITY_INFO, "MS4525[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());

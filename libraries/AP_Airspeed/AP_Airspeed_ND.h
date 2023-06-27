@@ -12,6 +12,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #pragma once
 
 #include <AP_HAL/AP_HAL_Boards.h>
@@ -49,6 +50,12 @@ public:
     bool get_temperature(float &temperature) override;
 
 private:
+    enum class DevTypeRange : uint8_t {
+        UNKNOWN = 0,
+        ND210,
+        ND130,
+        ND005D,
+    };
     void _measure();
     void _collect();
     void _timer();
@@ -56,6 +63,9 @@ private:
     float _get_pressure(int16_t dp_raw) const;
     float _get_temperature(int16_t dT_raw) const;
 
+    DevTypeRange _dev_type;
+
+    uint8_t _range; // inH2O
     float _temp_sum;
     float _press_sum;
     uint32_t _temp_count;
