@@ -59,11 +59,11 @@ private:
     };
     void _collect();
     bool matchModel(uint8_t* reading);
-    void _voltage_correction(float &diff_press_pa, float &temperature);
     float _get_pressure(int16_t dp_raw) const;
     float _get_temperature(int8_t dT_int, int8_t dT_frac) const;
 
     DevModel _dev_model;
+
 
     uint8_t _range_setting; 
     uint8_t _available_ranges;
@@ -75,7 +75,6 @@ private:
     float _temperature;
     float _pressure;
     uint32_t _last_sample_time_ms;
-    uint32_t _measurement_started_ms;
     AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
 
     bool probe(uint8_t bus, uint8_t address);

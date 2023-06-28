@@ -57,17 +57,16 @@ bool AP_Airspeed_ND::matchModel(uint8_t* reading) {
       goto probeND005;
     }
     _dev_model = DevModel::ND210;
-    ::printf("ND210 dev type detected.\n");
+    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"ND210 dev type detected.\n");
     return true;
   }
   probeND005:
   for (int i = 0; i < 8; i++) {
     if (reading[i] != MN_ND005D[i]) {
       return false;
-      ::printf("Dev Model not supported.\n");
     }
     _dev_model = DevModel::ND005D;
-    ::printf("ND005D dev type detected.\n");
+    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "ND005D dev type detected.\n");
   }
   return true;
 }
@@ -123,14 +122,13 @@ bool AP_Airspeed_ND::init()
         }
     }
 
-    GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found\n", get_instance());
-    // ::printf("SST_ND[%u]: no sensor found\n", get_instance());
+    GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found", get_instance());
     return false;
 
 found_sensor:
     _dev->set_device_type(uint8_t(DevType::NDxxx));
     set_bus_id(_dev->get_bus_id());
-    ::printf("SST_ND[%u]: Found bus %u addr 0x%02x\n", get_instance(), _dev->bus_num(), _dev->get_bus_address());
+    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
 
     // send default configuration
     WITH_SEMAPHORE(_dev->get_semaphore());
@@ -142,7 +140,6 @@ found_sensor:
             _available_ranges = 7;
             _range_setting = 3;
             _current_range_val = nd210_range[_range_setting];
-            ::printf("Current range is %.02f\n", _current_range_val);
             break;
         case DevModel::ND005D:
             _available_ranges = 6;
@@ -150,7 +147,7 @@ found_sensor:
             _current_range_val = nd005d_range[_range_setting];
             break;
         default:
-            ::printf("No specific device detected/not supported");
+            GCS_SEND_TEXT(MAV_SEVERITY_ERROR,"ND not setup correctly");
     }
 
     // drop to 2 retries for runtime
@@ -162,12 +159,7 @@ found_sensor:
 }
 
 /*
-  this equation is an inversion of the equation in the
-  pressure transfer function figure on page 4 of the datasheet
-  
-  We negate the result so that positive differential pressures
-  are generated when the bottom port is used as the static
-  port on the pitot and top port is used as the dynamic port
+    convert raw pressure to pressure in Pascals
 */
 float AP_Airspeed_ND::_get_pressure(int16_t dp_raw) const
 {
@@ -199,22 +191,9 @@ void AP_Airspeed_ND::_collect()
 
     int16_t dp_raw;
     dp_raw = (data[0] << 8) + data[1];
-    // dp_raw = 0x3FFF & dp_raw;
-    // dT_raw = (data[2] << 8) + data[3];
-    // dT_raw = (0xFFE0 & dT_raw) >> 5;
-
-    // reject any values that are the absolute minimum or maximums these
-    // can happen due to gnd lifts or communication errors on the bus
-    // if (dp_raw  == 0xFFFF || dp_raw  == 0 || dT_raw  == 0x7FF || dT_raw == 0) {
-    //     return;
-    // }
 
     float press  = _get_pressure(dp_raw);
     float temp  = _get_temperature(data[2], data[3]);
-    
-    // if (!disable_voltage_correction()) {
-    //     _voltage_correction(press, temp);
-    // }
 
     WITH_SEMAPHORE(sem);
 
@@ -226,30 +205,6 @@ void AP_Airspeed_ND::_collect()
     _last_sample_time_ms = AP_HAL::millis();
 }
 
-/**
-   correct for 5V rail voltage if the system_power ORB topic is
-   available
-
-   See http://uav.tridgell.net/MS4525/MS4525-offset.png for a graph of
-   offset versus voltage for 3 sensors
- */
-void AP_Airspeed_ND::_voltage_correction(float &diff_press_pa, float &temperature)
-{
-	const float slope = 65.0f;
-	const float temp_slope = 0.887f;
-
-	/*
-	  apply a piecewise linear correction within range given by above graph
-	 */
-	float voltage_diff = hal.analogin->board_voltage() - 5.0f;
-
-    voltage_diff = constrain_float(voltage_diff, -0.7f, 0.5f);
-
-	diff_press_pa -= voltage_diff * slope;
-	temperature -= voltage_diff * temp_slope;
-}
-
-// return the current differential_pressure in inH2O
 bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
 {
     WITH_SEMAPHORE(sem);
@@ -285,19 +240,18 @@ bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
                 _current_range_val = nd005d_range[_range_setting];
                 break;
             default:
-                ::printf("No specific device detected/not supported\n");
+                GCS_SEND_TEXT(MAV_SEVERITY_INFO,"No specific device detected/not supported\n");
         }
         config[0] = 0x40 + (0b0111 - _range_setting);
         WITH_SEMAPHORE(_dev->get_semaphore());
         _dev->transfer(config, 2, nullptr,0);
-        ::printf("Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
         hal.scheduler->delay(2); // wait for the sensor to change range
     }
     pressure = _pressure;
     return true;
 }
 
-// return the current temperature in degrees C, if available
 bool AP_Airspeed_ND::get_temperature(float &temperature)
 {
     WITH_SEMAPHORE(sem);
