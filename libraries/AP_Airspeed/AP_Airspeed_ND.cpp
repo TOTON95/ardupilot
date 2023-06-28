@@ -206,16 +206,6 @@ void AP_Airspeed_ND::_collect()
     // dp_raw = 0x3FFF & dp_raw;
     // dT_raw = (data[2] << 8) + data[3];
     // dT_raw = (0xFFE0 & dT_raw) >> 5;
-    
-    switch(_dev_model){
-        case DevModel::ND210:
-            if(dp_raw > 0xD998){ //if above 85% of range, go to the next
-                if(_range_setting > 0){
-                    _range_setting -= 1;
-                } // can't go higher
-            }
-    }
-
 
     // reject any values that are the absolute minimum or maximums these
     // can happen due to gnd lifts or communication errors on the bus
@@ -263,7 +253,7 @@ void AP_Airspeed_ND::_voltage_correction(float &diff_press_pa, float &temperatur
 	temperature -= voltage_diff * temp_slope;
 }
 
-// return the current differential_pressure in Pascal
+// return the current differential_pressure in inH2O
 bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
 {
     WITH_SEMAPHORE(sem);
@@ -276,6 +266,31 @@ bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
         _pressure = _press_sum / _press_count;
         _press_count = 0;
         _press_sum = 0;
+    }
+    bool range_changed = false;
+    if(_pressure > 0.85*_current_range_val){ //if above 85% of range, go to the next
+        if(_range_setting > 0){
+            _range_setting -= 1;
+            range_changed = true;
+        } // can't go higher
+    }else if(_pressure < 0.15*_current_range_val){ //if below 15% of range, go to the next
+        if(_range_setting < _available_ranges){
+            _range_setting += 1;
+            range_changed = true;
+        } // can't go lower
+    }
+    if(range_changed){
+        switch(_dev_model){
+            case DevModel::ND210:
+                _current_range_val = nd210_range[_range_setting];
+                break;
+            case DevModel::ND005D:
+                _current_range_val = nd005d_range[_range_setting];
+                break;
+            default:
+                ::printf("No specific device detected/not supported");
+        }
+        ::printf("Range changed to %d: %f inH2O\n", _range_setting, _current_range_val);
     }
 
     pressure = _pressure;
