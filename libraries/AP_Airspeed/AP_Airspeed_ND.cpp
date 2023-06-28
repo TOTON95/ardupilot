@@ -27,14 +27,15 @@
 #include <GCS_MAVLink/GCS.h>
 #include <stdio.h>
 #include <utility>
-#include <vector>
 
 extern const AP_HAL::HAL &hal;
 
 #define ND_I2C_ADDR1 0x28
 #define ND_I2C_ADDR2 0x30
 
-uint8_t DEFAULT_MODE[2] = {0x44, 0x00}; // notch filter disabled, bw limit set to 20Hz-> 63.4Hz odr with auto select, wdg disabled, pressure range set to 0b100
+uint16_t print_counter=0;
+
+uint8_t config[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
 
 uint8_t MN_ND210[8] = {0x4E, 0x44, 0x32, 0x31, 0x30, 0x00, 0x00, 0x00};
 uint8_t MN_ND005D[8] = {0x4E, 0x44, 0x30, 0x30, 0x35, 0x44, 0x00, 0x00};
@@ -91,13 +92,7 @@ bool AP_Airspeed_ND::probe(uint8_t bus, uint8_t address)
                 model[i-4]= reading[i];
             }
         }
-        // ::printf("Model is ");
-        // for (int j=0; j<8; j++){
-        //     ::printf(" 0x%x ", model[j]);
-        // }
-        // ::printf("\n");
     }
-
     return matchModel(model);
 }
 
@@ -128,7 +123,7 @@ bool AP_Airspeed_ND::init()
         }
     }
 
-    GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found", get_instance());
+    GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found\n", get_instance());
     // ::printf("SST_ND[%u]: no sensor found\n", get_instance());
     return false;
 
@@ -139,7 +134,7 @@ found_sensor:
 
     // send default configuration
     WITH_SEMAPHORE(_dev->get_semaphore());
-    _dev->transfer(DEFAULT_MODE, 2, nullptr,0);
+    _dev->transfer(config, 2, nullptr,0);
 
 
     switch(_dev_model){
@@ -147,6 +142,7 @@ found_sensor:
             _available_ranges = 7;
             _range_setting = 3;
             _current_range_val = nd210_range[_range_setting];
+            ::printf("Current range is %.02f\n", _current_range_val);
             break;
         case DevModel::ND005D:
             _available_ranges = 6;
@@ -160,7 +156,7 @@ found_sensor:
     // drop to 2 retries for runtime
     _dev->set_retries(2);
     
-    _dev->register_periodic_callback(200000,
+    _dev->register_periodic_callback(6757,
                                      FUNCTOR_BIND_MEMBER(&AP_Airspeed_ND::_collect, void));
     return true;
 }
@@ -188,7 +184,7 @@ float AP_Airspeed_ND::_get_pressure(int16_t dp_raw) const
  */
 float AP_Airspeed_ND::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 {
-    float temp  = dT_int*1.0 + dT_frac*0.01;
+    float temp  = dT_int + dT_frac/256.0;
     return temp;
 }
 
@@ -268,13 +264,14 @@ bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
         _press_sum = 0;
     }
     bool range_changed = false;
-    if(_pressure > 0.85*_current_range_val){ //if above 85% of range, go to the next
+    const float inH20_to_Pa = 249.08f;
+    if(_pressure > 0.8*_current_range_val*inH20_to_Pa){ //if above 85% of range, go to the next
         if(_range_setting > 0){
             _range_setting -= 1;
             range_changed = true;
         } // can't go higher
-    }else if(_pressure < 0.15*_current_range_val){ //if below 15% of range, go to the next
-        if(_range_setting < _available_ranges){
+    }else if(_pressure < 0.25*_current_range_val*inH20_to_Pa){ //if below 15% of range, go to the next
+        if(_range_setting < _available_ranges - 1){
             _range_setting += 1;
             range_changed = true;
         } // can't go lower
@@ -288,13 +285,15 @@ bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
                 _current_range_val = nd005d_range[_range_setting];
                 break;
             default:
-                ::printf("No specific device detected/not supported");
+                ::printf("No specific device detected/not supported\n");
         }
-        ::printf("Range changed to %d: %f inH2O\n", _range_setting, _current_range_val);
+        config[0] = 0x40 + (0b0111 - _range_setting);
+        WITH_SEMAPHORE(_dev->get_semaphore());
+        _dev->transfer(config, 2, nullptr,0);
+        ::printf("Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
+        hal.scheduler->delay(2); // wait for the sensor to change range
     }
-
     pressure = _pressure;
-    ::printf("Pressure: %f\t", pressure);
     return true;
 }
 
@@ -312,9 +311,7 @@ bool AP_Airspeed_ND::get_temperature(float &temperature)
         _temp_count = 0;
         _temp_sum = 0;
     }
-
     temperature = _temperature;
-    ::printf("Temp: %f\n", temperature);
     return true;
 }
 
