@@ -242,7 +242,7 @@ bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
             default:
                 GCS_SEND_TEXT(MAV_SEVERITY_INFO,"No specific device detected/not supported\n");
         }
-        config[0] = 0x40 + (0b0111 - _range_setting);
+        config[0] = (config[0] & 0xF0) + (0b0111 - _range_setting);
         WITH_SEMAPHORE(_dev->get_semaphore());
         _dev->transfer(config, 2, nullptr,0);
         GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
