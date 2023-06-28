@@ -30,21 +30,45 @@
 #include <vector>
 
 extern const AP_HAL::HAL &hal;
-// float** ranges = {{0.25, 0.5, 1.0, 2.0, 4.0, 5.0, 10.0},{2.0, 4.0, 5.0, 10.0, 20.0, 30.0},{13.84, 22.14, 27.68, 55.36, 110.72,138.4}};
-std::vector<std::vector<float>> matrix;
 
-std::vector<float> row1 = {0.25, 0.5, 1.0, 2.0, 4.0, 5.0, 10.0};
-std::vector<float> row2 = {2.0, 4.0, 5.0, 10.0, 20.0, 30.0};
-std::vector<float> row3 = {13.84, 22.14, 27.68, 55.36, 110.72,138.4};
+#define ND_I2C_ADDR1 0x28
+#define ND_I2C_ADDR2 0x30
 
+uint8_t DEFAULT_MODE[2] = {0x44, 0x00}; // notch filter disabled, bw limit set to 20Hz-> 63.4Hz odr with auto select, wdg disabled, pressure range set to 0b100
 
-#define MS4525D0_I2C_ADDR1 0x28
-#define MS4525D0_I2C_ADDR2 0x36
-#define MS4525D0_I2C_ADDR3 0x46
+uint8_t MN_ND210[8] = {0x4E, 0x44, 0x32, 0x31, 0x30, 0x00, 0x00, 0x00};
+uint8_t MN_ND005D[8] = {0x4E, 0x44, 0x30, 0x30, 0x35, 0x44, 0x00, 0x00};
+
+float nd210_range[7] = {10.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.25}; // all in inH2O
+float nd130_range[6] = {30.0, 20.0, 10.0, 5.0, 4.0, 2.0};
+float nd160_range[8] = {60.0, 50.0, 40.0, 30.0, 20.0, 10.0, 5.0, 2.5};
+float nd005d_range[6] = {138.4, 110.72, 55.36, 27.68, 22.14, 13.84}; // converted psi to inH2O
 
 AP_Airspeed_ND::AP_Airspeed_ND(AP_Airspeed &_frontend, uint8_t _instance) :
     AP_Airspeed_Backend(_frontend, _instance)
 {
+}
+
+bool AP_Airspeed_ND::matchModel(uint8_t* reading) {
+  
+  for (int i = 0; i < 8; i++) {
+    if (reading[i] != MN_ND210[i]) {
+      goto probeND005;
+    }
+    _dev_model = DevModel::ND210;
+    ::printf("ND210 dev type detected.\n");
+    return true;
+  }
+  probeND005:
+  for (int i = 0; i < 8; i++) {
+    if (reading[i] != MN_ND005D[i]) {
+      return false;
+      ::printf("Dev Model not supported.\n");
+    }
+    _dev_model = DevModel::ND005D;
+    ::printf("ND005D dev type detected.\n");
+  }
+  return true;
 }
 
 // probe for a sensor
@@ -56,30 +80,38 @@ bool AP_Airspeed_ND::probe(uint8_t bus, uint8_t address)
     }
     WITH_SEMAPHORE(_dev->get_semaphore());
 
-    // lots of retries during probe
-    _dev->set_retries(10);
-    
-    _measure();
-    hal.scheduler->delay(10);
-    _collect();
+    _dev->set_retries(5);
+    uint8_t reading[12]= {'\0'};
+    uint8_t model[8] = {'\0'};
+    if(!_dev->read(reading, 12)){
+        return false;
+    }else{
+        for (int i=0; i<12; i++){
+            if(i>3){
+                model[i-4]= reading[i];
+            }
+        }
+        // ::printf("Model is ");
+        // for (int j=0; j<8; j++){
+        //     ::printf(" 0x%x ", model[j]);
+        // }
+        // ::printf("\n");
+    }
 
-    return _last_sample_time_ms != 0;
+    return matchModel(model);
 }
 
 // probe and initialise the sensor
 bool AP_Airspeed_ND::init()
 {
-    static const uint8_t addresses[] = { MS4525D0_I2C_ADDR1, MS4525D0_I2C_ADDR2, MS4525D0_I2C_ADDR3 };
+    static const uint8_t addresses[] = { ND_I2C_ADDR1, ND_I2C_ADDR2 };
     if (bus_is_confgured()) {
-        // the user has configured a specific bus
         for (uint8_t addr : addresses) {
             if (probe(get_bus(), addr)) {
                 goto found_sensor;
             }
         }
     } else {
-        // if bus is not configured then fall back to the old
-        // behaviour of probing all buses, external first
         FOREACH_I2C_EXTERNAL(bus) {
             for (uint8_t addr : addresses) {
                 if (probe(bus, addr)) {
@@ -96,31 +128,41 @@ bool AP_Airspeed_ND::init()
         }
     }
 
-    GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "MS4525[%u]: no sensor found", get_instance());
+    GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found", get_instance());
+    // ::printf("SST_ND[%u]: no sensor found\n", get_instance());
     return false;
 
 found_sensor:
     _dev->set_device_type(uint8_t(DevType::NDxxx));
     set_bus_id(_dev->get_bus_id());
+    ::printf("SST_ND[%u]: Found bus %u addr 0x%02x\n", get_instance(), _dev->bus_num(), _dev->get_bus_address());
 
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "MS4525[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
+    // send default configuration
+    WITH_SEMAPHORE(_dev->get_semaphore());
+    _dev->transfer(DEFAULT_MODE, 2, nullptr,0);
+
+
+    switch(_dev_model){
+        case DevModel::ND210:
+            _available_ranges = 7;
+            _range_setting = 3;
+            _current_range_val = nd210_range[_range_setting];
+            break;
+        case DevModel::ND005D:
+            _available_ranges = 6;
+            _range_setting = 3;
+            _current_range_val = nd005d_range[_range_setting];
+            break;
+        default:
+            ::printf("No specific device detected/not supported");
+    }
 
     // drop to 2 retries for runtime
     _dev->set_retries(2);
     
-    _dev->register_periodic_callback(20000,
-                                     FUNCTOR_BIND_MEMBER(&AP_Airspeed_ND::_timer, void));
+    _dev->register_periodic_callback(200000,
+                                     FUNCTOR_BIND_MEMBER(&AP_Airspeed_ND::_collect, void));
     return true;
-}
-
-// start a measurement
-void AP_Airspeed_ND::_measure()
-{
-    _measurement_started_ms = 0;
-    uint8_t cmd = 0;
-    if (_dev->transfer(&cmd, 1, nullptr, 0)) {
-        _measurement_started_ms = AP_HAL::millis();
-    }
 }
 
 /*
@@ -133,87 +175,67 @@ void AP_Airspeed_ND::_measure()
 */
 float AP_Airspeed_ND::_get_pressure(int16_t dp_raw) const
 {
-    const float P_max = get_psi_range();
-    const float P_min = - P_max;
-    const float PSI_to_Pa = 6894.757f;
+    const float inH20_to_Pa = 249.08f;
+    const float margin = 29491.2f;
 
-    float diff_press_PSI  = -((dp_raw - 0.1f*16383) * (P_max-P_min)/(0.8f*16383) + P_min);
-    float press  = diff_press_PSI * PSI_to_Pa;
+    float diff_press_inH2O  = (dp_raw*_current_range_val)/margin;
+    float press  = diff_press_inH2O * inH20_to_Pa;
     return press;
 }
 
 /*
   convert raw temperature to temperature in degrees C
  */
-float AP_Airspeed_ND::_get_temperature(int16_t dT_raw) const
+float AP_Airspeed_ND::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 {
-    float temp  = ((200.0f * dT_raw) / 2047) - 50;
+    float temp  = dT_int*1.0 + dT_frac*0.01;
     return temp;
 }
 
 // read the values from the sensor
 void AP_Airspeed_ND::_collect()
 {
-    uint8_t data[4];
-    uint8_t data2[4];
+    uint8_t data[4]; //2 bytes for pressure and 2 for temperature
 
-    _measurement_started_ms = 0;
-
-    if (!_dev->transfer(nullptr, 0, data, sizeof(data))) {
-        return;
-    }
-    // reread the data, so we can attempt to detect bad inputs
-    if (!_dev->transfer(nullptr, 0, data2, sizeof(data2))) {
+    if (!_dev->read(data, sizeof(data))) {
         return;
     }
 
-    uint8_t status = (data[0] & 0xC0) >> 6;
-    // only check the status on the first read, the second read is expected to be stale
-    if (status == 2 || status == 3) {
-        return;
-    }
-
-    int16_t dp_raw, dT_raw;
+    int16_t dp_raw;
     dp_raw = (data[0] << 8) + data[1];
-    dp_raw = 0x3FFF & dp_raw;
-    dT_raw = (data[2] << 8) + data[3];
-    dT_raw = (0xFFE0 & dT_raw) >> 5;
+    // dp_raw = 0x3FFF & dp_raw;
+    // dT_raw = (data[2] << 8) + data[3];
+    // dT_raw = (0xFFE0 & dT_raw) >> 5;
+    
+    switch(_dev_model){
+        case DevModel::ND210:
+            if(dp_raw > 0xD998){ //if above 85% of range, go to the next
+                if(_range_setting > 0){
+                    _range_setting -= 1;
+                } // can't go higher
+            }
+    }
 
-    int16_t dp_raw2, dT_raw2;
-    dp_raw2 = (data2[0] << 8) + data2[1];
-    dp_raw2 = 0x3FFF & dp_raw2;
-    dT_raw2 = (data2[2] << 8) + data2[3];
-    dT_raw2 = (0xFFE0 & dT_raw2) >> 5;
 
     // reject any values that are the absolute minimum or maximums these
     // can happen due to gnd lifts or communication errors on the bus
-    if (dp_raw  == 0x3FFF || dp_raw  == 0 || dT_raw  == 0x7FF || dT_raw == 0 ||
-        dp_raw2 == 0x3FFF || dp_raw2 == 0 || dT_raw2 == 0x7FF || dT_raw2 == 0) {
-        return;
-    }
-
-    // reject any double reads where the value has shifted in the upper more than
-    // 0xFF
-    if (abs(dp_raw - dp_raw2) > 0xFF || abs(dT_raw - dT_raw2) > 0xFF) {
-        return;
-    }
+    // if (dp_raw  == 0xFFFF || dp_raw  == 0 || dT_raw  == 0x7FF || dT_raw == 0) {
+    //     return;
+    // }
 
     float press  = _get_pressure(dp_raw);
-    float press2 = _get_pressure(dp_raw2);
-    float temp  = _get_temperature(dT_raw);
-    float temp2 = _get_temperature(dT_raw2);
+    float temp  = _get_temperature(data[2], data[3]);
     
-    if (!disable_voltage_correction()) {
-        _voltage_correction(press, temp);
-        _voltage_correction(press2, temp2);
-    }
+    // if (!disable_voltage_correction()) {
+    //     _voltage_correction(press, temp);
+    // }
 
     WITH_SEMAPHORE(sem);
 
-    _press_sum += press + press2;
-    _temp_sum += temp + temp2;
-    _press_count += 2;
-    _temp_count += 2;
+    _press_sum += press ;
+    _temp_sum += temp;
+    _press_count += 1;
+    _temp_count += 1;
 
     _last_sample_time_ms = AP_HAL::millis();
 }
@@ -241,20 +263,6 @@ void AP_Airspeed_ND::_voltage_correction(float &diff_press_pa, float &temperatur
 	temperature -= voltage_diff * temp_slope;
 }
 
-// 50Hz timer
-void AP_Airspeed_ND::_timer()
-{
-    if (_measurement_started_ms == 0) {
-        _measure();
-        return;
-    }
-    if ((AP_HAL::millis() - _measurement_started_ms) > 10) {
-        _collect();
-        // start a new measurement
-        _measure();
-    }
-}
-
 // return the current differential_pressure in Pascal
 bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
 {
@@ -271,6 +279,7 @@ bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
     }
 
     pressure = _pressure;
+    ::printf("Pressure: %f\t", pressure);
     return true;
 }
 
@@ -290,6 +299,7 @@ bool AP_Airspeed_ND::get_temperature(float &temperature)
     }
 
     temperature = _temperature;
+    ::printf("Temp: %f\n", temperature);
     return true;
 }
 

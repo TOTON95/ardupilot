@@ -50,22 +50,24 @@ public:
     bool get_temperature(float &temperature) override;
 
 private:
-    enum class DevTypeRange : uint8_t {
+    enum class DevModel : uint8_t {
         UNKNOWN = 0,
         ND210,
         ND130,
+        ND160,
         ND005D,
     };
-    void _measure();
     void _collect();
-    void _timer();
+    bool matchModel(uint8_t* reading);
     void _voltage_correction(float &diff_press_pa, float &temperature);
     float _get_pressure(int16_t dp_raw) const;
-    float _get_temperature(int16_t dT_raw) const;
+    float _get_temperature(int8_t dT_int, int8_t dT_frac) const;
 
-    DevTypeRange _dev_type;
+    DevModel _dev_model;
 
-    uint8_t _range; // inH2O
+    uint8_t _range_setting; // inH2O
+    uint8_t _available_ranges;
+    float _current_range_val;
     float _temp_sum;
     float _press_sum;
     uint32_t _temp_count;
