@@ -29,7 +29,7 @@
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_HAL/utility/OwnPtr.h>
-#include <AP_HAL/I2CDevice.h>
+#include <AP_HALgit add/I2CDevice.h>
 #include <utility>
 
 #include "AP_Baro_Backend.h"
