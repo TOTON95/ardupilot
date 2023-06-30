@@ -16,7 +16,7 @@
 #pragma once
 
 #include <AP_HAL/AP_HAL_Boards.h>
-
+$
 #ifndef AP_BARO_ND015A_ENABLED
 #define AP_BARO_ND015A_ENABLED AP_AIRSPEED_BACKEND_DEFAULT_ENABLED
 #endif
@@ -24,7 +24,7 @@
 #if AP_BARO_ND015A_ENABLED
 
 /*
-  backend driver for airspeed from I2C
+  backend driver for Superior Sensor's ND015A absolute pressure sensor
  */
 
 #include <AP_HAL/AP_HAL.h>
@@ -34,40 +34,23 @@
 
 #include "AP_Baro_Backend.h"
 
-class AP_Airspeed_ND : public AP_Airspeed_Backend
+class AP_Baro_ND015A : public AP_Baro_Backend
 {
 public:
-    AP_Airspeed_ND(AP_Airspeed &frontend, uint8_t _instance);
-    ~AP_Airspeed_ND(void) {}
+    AP_Baro_ND015A(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
+    ~AP_Baro_ND015A(void) {}
     
-    // probe and initialise the sensor
-    bool init() override;
+   /* AP_Baro public interface: */
+    void update() override;
 
-    // return the current differential_pressure in Pascal
-    bool get_differential_pressure(float &pressure) override;
-
-    // return the current temperature in degrees C, if available
-    bool get_temperature(float &temperature) override;
+    // bool probe(uint8_t bus, uint8_t address);
+    static AP_Baro_Backend *probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
 
 private:
-    enum class DevModel : uint8_t {
-        UNKNOWN = 0,
-        ND210,
-        ND130,
-        ND160,
-        ND005D,
-    };
-    void _collect();
     bool matchModel(uint8_t* reading);
     float _get_pressure(int16_t dp_raw) const;
     float _get_temperature(int8_t dT_int, int8_t dT_frac) const;
 
-    DevModel _dev_model;
-
-
-    uint8_t _range_setting; 
-    uint8_t _available_ranges;
-    float _current_range_val; //inh2o
     float _temp_sum;
     float _press_sum;
     uint32_t _temp_count;
@@ -75,9 +58,8 @@ private:
     float _temperature;
     float _pressure;
     uint32_t _last_sample_time_ms;
-    AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
 
-    bool probe(uint8_t bus, uint8_t address);
+    
 };
 
 #endif  // AP_BARO_ND015A_ENABLED

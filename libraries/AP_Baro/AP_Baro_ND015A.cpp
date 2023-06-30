@@ -14,9 +14,9 @@
  */
 
 /*
-  backend driver for airspeed from a I2C NDD0 sensor
+  backend driver for Superior Sensor's ND015A absolute pressure sensor
  */
-#include "AP_Airspeed_ND.h"
+#include "AP_Baro_ND015A.h"
 
 #if AP_BARO_ND015A_ENABLED
 
@@ -30,49 +30,32 @@
 
 extern const AP_HAL::HAL &hal;
 
-#define ND_I2C_ADDR1 0x28
-#define ND_I2C_ADDR2 0x30
+#define ND_I2C_ADDR 0x2D
 
 uint16_t print_counter=0;
 
-uint8_t config[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
+uint8_t config[2] = {0x57, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, fixed range
 
-uint8_t MN_ND210[8] = {0x4E, 0x44, 0x32, 0x31, 0x30, 0x00, 0x00, 0x00};
-uint8_t MN_ND005D[8] = {0x4E, 0x44, 0x30, 0x30, 0x35, 0x44, 0x00, 0x00};
+uint8_t model_sign[8] = {0x4E, 0x44, 0x30, 0x31, 0x35, 0x41, 0x00, 0x00};
 
-float nd210_range[7] = {10.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.25}; // all in inH2O
-float nd130_range[6] = {30.0, 20.0, 10.0, 5.0, 4.0, 2.0};
-float nd160_range[8] = {60.0, 50.0, 40.0, 30.0, 20.0, 10.0, 5.0, 2.5};
-float nd005d_range[6] = {138.4, 110.72, 55.36, 27.68, 22.14, 13.84}; // converted psi to inH2O
-
-AP_Airspeed_ND::AP_Airspeed_ND(AP_Airspeed &_frontend, uint8_t _instance) :
-    AP_Airspeed_Backend(_frontend, _instance)
+AP_Baro_ND015A::AP_Baro_ND015A(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> _dev)
+    : AP_Baro_Backend(baro)
+    , dev(std::move(_dev))
 {
 }
 
-bool AP_Airspeed_ND::matchModel(uint8_t* reading) {
-  
-  for (int i = 0; i < 8; i++) {
-    if (reading[i] != MN_ND210[i]) {
-      goto probeND005;
-    }
-    _dev_model = DevModel::ND210;
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"ND210 dev type detected.\n");
-    return true;
-  }
-  probeND005:
-  for (int i = 0; i < 8; i++) {
-    if (reading[i] != MN_ND005D[i]) {
+bool AP_Baro_ND015A::matchModel(uint8_t* reading) {
+  for (uint8_t i = 0; i < 8; i++) {
+    if (reading[i] != model_sign[i]) {
       return false;
     }
-    _dev_model = DevModel::ND005D;
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "ND005D dev type detected.\n");
   }
+  GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST ND015A baro detected.\n");
   return true;
 }
 
 // probe for a sensor
-bool AP_Airspeed_ND::probe(uint8_t bus, uint8_t address)
+bool AP_Baro_ND015A::probe(uint8_t bus, uint8_t address)
 {
     _dev = hal.i2c_mgr->get_device(bus, address);
     if (!_dev) {
@@ -96,7 +79,7 @@ bool AP_Airspeed_ND::probe(uint8_t bus, uint8_t address)
 }
 
 // probe and initialise the sensor
-bool AP_Airspeed_ND::init()
+bool AP_Baro_ND015A::init()
 {
     static const uint8_t addresses[] = { ND_I2C_ADDR1, ND_I2C_ADDR2 };
     if (bus_is_confgured()) {
@@ -154,14 +137,14 @@ found_sensor:
     _dev->set_retries(2);
     
     _dev->register_periodic_callback(6757,
-                                     FUNCTOR_BIND_MEMBER(&AP_Airspeed_ND::_collect, void));
+                                     FUNCTOR_BIND_MEMBER(&AP_Baro_ND015A::_collect, void));
     return true;
 }
 
 /*
     convert raw pressure to pressure in Pascals
 */
-float AP_Airspeed_ND::_get_pressure(int16_t dp_raw) const
+float AP_Baro_ND015A::_get_pressure(int16_t dp_raw) const
 {
     const float inH20_to_Pa = 249.08f;
     const float margin = 29491.2f;
@@ -174,14 +157,14 @@ float AP_Airspeed_ND::_get_pressure(int16_t dp_raw) const
 /*
   convert raw temperature to temperature in degrees C
  */
-float AP_Airspeed_ND::_get_temperature(int8_t dT_int, int8_t dT_frac) const
+float AP_Baro_ND015A::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 {
     float temp  = dT_int + dT_frac/256.0;
     return temp;
 }
 
 // read the values from the sensor
-void AP_Airspeed_ND::_collect()
+void AP_Baro_ND015A::_collect()
 {
     uint8_t data[4]; //2 bytes for pressure and 2 for temperature
 
@@ -205,7 +188,7 @@ void AP_Airspeed_ND::_collect()
     _last_sample_time_ms = AP_HAL::millis();
 }
 
-bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
+bool AP_Baro_ND015A::get_differential_pressure(float &pressure)
 {
     WITH_SEMAPHORE(sem);
 
@@ -252,7 +235,7 @@ bool AP_Airspeed_ND::get_differential_pressure(float &pressure)
     return true;
 }
 
-bool AP_Airspeed_ND::get_temperature(float &temperature)
+bool AP_Baro_ND015A::get_temperature(float &temperature)
 {
     WITH_SEMAPHORE(sem);
 
@@ -269,4 +252,4 @@ bool AP_Airspeed_ND::get_temperature(float &temperature)
     return true;
 }
 
-#endif  // AP_AIRSPEED_ND_ENABLED
+#endif  // AP_Baro_ND015A_ENABLED
