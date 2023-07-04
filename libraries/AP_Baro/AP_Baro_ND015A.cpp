@@ -20,23 +20,10 @@
 
 #if AP_BARO_ND015A_ENABLED
 
-#include <AP_Common/AP_Common.h>
-#include <AP_HAL/AP_HAL.h>
-#include <AP_HAL/I2CDevice.h>
-#include <AP_Math/AP_Math.h>
-#include <GCS_MAVLink/GCS.h>
-#include <stdio.h>
-#include <utility>
-
 extern const AP_HAL::HAL &hal;
 
-#define ND_I2C_ADDR 0x2D
-
-uint16_t print_counter=0;
-
 uint8_t config[2] = {0x57, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, fixed range
-
-uint8_t model_sign[8] = {0x4E, 0x44, 0x30, 0x31, 0x35, 0x41, 0x00, 0x00};
+uint8_t model_sign[7] = {0x4E, 0x44, 0x30, 0x31, 0x35, 0x41, 0x00};
 
 AP_Baro_ND015A::AP_Baro_ND015A(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> _dev)
     : AP_Baro_Backend(baro)
@@ -44,113 +31,67 @@ AP_Baro_ND015A::AP_Baro_ND015A(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> _de
 {
 }
 
+AP_Baro_Backend *AP_Baro_ND015A::probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev)
+{
+    if (!dev) {
+        return nullptr;
+    }
+    AP_Baro_ND015A *sensor = new AP_Baro_ND015A(baro, std::move(dev));
+    if (!sensor->init()) {
+        delete sensor;
+        return nullptr;
+    }
+    return sensor;
+}
+
 bool AP_Baro_ND015A::matchModel(uint8_t* reading) {
-  for (uint8_t i = 0; i < 8; i++) {
+  for (uint8_t i = 0; i < 7; i++) {
     if (reading[i] != model_sign[i]) {
       return false;
     }
   }
-  GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST ND015A baro detected.\n");
   return true;
 }
 
-// probe for a sensor
-bool AP_Baro_ND015A::probe(uint8_t bus, uint8_t address)
-{
-    _dev = hal.i2c_mgr->get_device(bus, address);
-    if (!_dev) {
-        return false;
-    }
-    WITH_SEMAPHORE(_dev->get_semaphore());
-
-    _dev->set_retries(5);
-    uint8_t reading[12]= {'\0'};
-    uint8_t model[8] = {'\0'};
-    if(!_dev->read(reading, 12)){
-        return false;
-    }else{
-        for (int i=0; i<12; i++){
-            if(i>3){
-                model[i-4]= reading[i];
-            }
-        }
-    }
-    return matchModel(model);
-}
-
-// probe and initialise the sensor
 bool AP_Baro_ND015A::init()
 {
-    static const uint8_t addresses[] = { ND_I2C_ADDR1, ND_I2C_ADDR2 };
-    if (bus_is_confgured()) {
-        for (uint8_t addr : addresses) {
-            if (probe(get_bus(), addr)) {
-                goto found_sensor;
-            }
-        }
+    dev->get_semaphore()->take_blocking();
+    uint8_t reading[12] = {'\0'};
+    uint8_t model[7] = {'\0'};
+    if (!dev->read(reading,12)) {
+        return false;
     } else {
-        FOREACH_I2C_EXTERNAL(bus) {
-            for (uint8_t addr : addresses) {
-                if (probe(bus, addr)) {
-                    goto found_sensor;
-                }
-            }
-        }
-        FOREACH_I2C_INTERNAL(bus) {
-            for (uint8_t addr : addresses) {
-                if (probe(bus, addr)) {
-                    goto found_sensor;
-                }
-            }
+        for (int i=4; i<11; i++) {
+            model[i-4] = reading[i];
         }
     }
+    if (!matchModel(model)) {
+        return false;
+    } else {
+        instance = _frontend.register_sensor();
+        dev->set_retries(2);
+        dev->set_device_type(DEVTYPE_BARO_ND015A);
+        set_bus_id(instance, dev->get_bus_id());
 
-    GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found", get_instance());
-    return false;
-
-found_sensor:
-    _dev->set_device_type(uint8_t(DevType::NDxxx));
-    set_bus_id(_dev->get_bus_id());
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
-
-    // send default configuration
-    WITH_SEMAPHORE(_dev->get_semaphore());
-    _dev->transfer(config, 2, nullptr,0);
-
-
-    switch(_dev_model){
-        case DevModel::ND210:
-            _available_ranges = 7;
-            _range_setting = 3;
-            _current_range_val = nd210_range[_range_setting];
-            break;
-        case DevModel::ND005D:
-            _available_ranges = 6;
-            _range_setting = 3;
-            _current_range_val = nd005d_range[_range_setting];
-            break;
-        default:
-            GCS_SEND_TEXT(MAV_SEVERITY_ERROR,"ND not setup correctly");
+        dev->transfer(config, 2, nullptr,0);
+        dev->get_semaphore()->give();
+        dev->register_periodic_callback(6757, // 148Hz ODR
+            FUNCTOR_BIND_MEMBER(&AP_Baro_ND015A::collect, void));
     }
-
-    // drop to 2 retries for runtime
-    _dev->set_retries(2);
-    
-    _dev->register_periodic_callback(6757,
-                                     FUNCTOR_BIND_MEMBER(&AP_Baro_ND015A::_collect, void));
     return true;
 }
 
 /*
-    convert raw pressure to pressure in Pascals
+    convert raw pressure to pressure in psi
 */
-float AP_Baro_ND015A::_get_pressure(int16_t dp_raw) const
+float AP_Baro_ND015A::_get_pressure(uint16_t dp_raw) const
 {
-    const float inH20_to_Pa = 249.08f;
-    const float margin = 29491.2f;
-
-    float diff_press_inH2O  = (dp_raw*_current_range_val)/margin;
-    float press  = diff_press_inH2O * inH20_to_Pa;
+    const float psi_to_Pa = 6894.757f;
+    const float margin = 5898.24f;
+    const float offset = 3276.8f;
+    
+    float press_psi  = (((float) dp_raw - offset)*1.50)/margin; //fixed 15 psi range for A series
+    float press  = press_psi * psi_to_Pa;
     return press;
 }
 
@@ -163,93 +104,42 @@ float AP_Baro_ND015A::_get_temperature(int8_t dT_int, int8_t dT_frac) const
     return temp;
 }
 
-// read the values from the sensor
-void AP_Baro_ND015A::_collect()
+void AP_Baro_ND015A::collect()
 {
     uint8_t data[4]; //2 bytes for pressure and 2 for temperature
 
-    if (!_dev->read(data, sizeof(data))) {
+    if (!dev->read(data, sizeof(data))) {
         return;
     }
 
-    int16_t dp_raw;
+    uint16_t dp_raw;
     dp_raw = (data[0] << 8) + data[1];
 
     float press  = _get_pressure(dp_raw);
     float temp  = _get_temperature(data[2], data[3]);
 
-    WITH_SEMAPHORE(sem);
-
+    WITH_SEMAPHORE(_sem);
     _press_sum += press ;
     _temp_sum += temp;
     _press_count += 1;
     _temp_count += 1;
-
     _last_sample_time_ms = AP_HAL::millis();
 }
 
-bool AP_Baro_ND015A::get_differential_pressure(float &pressure)
-{
-    WITH_SEMAPHORE(sem);
-
-    if ((AP_HAL::millis() - _last_sample_time_ms) > 100) {
-        return false;
+void AP_Baro_ND015A::update() {
+    WITH_SEMAPHORE(_sem);
+    if ((AP_HAL::millis() - _last_sample_time_ms) > 100 
+        || _press_count <= 0 || _temp_count <= 0) {
+        return;
     }
 
-    if (_press_count > 0) {
-        _pressure = _press_sum / _press_count;
-        _press_count = 0;
-        _press_sum = 0;
-    }
-    bool range_changed = false;
-    const float inH20_to_Pa = 249.08f;
-    if(_pressure > 0.8*_current_range_val*inH20_to_Pa){ //if above 85% of range, go to the next
-        if(_range_setting > 0){
-            _range_setting -= 1;
-            range_changed = true;
-        } // can't go higher
-    }else if(_pressure < 0.25*_current_range_val*inH20_to_Pa){ //if below 15% of range, go to the next
-        if(_range_setting < _available_ranges - 1){
-            _range_setting += 1;
-            range_changed = true;
-        } // can't go lower
-    }
-    if(range_changed){
-        switch(_dev_model){
-            case DevModel::ND210:
-                _current_range_val = nd210_range[_range_setting];
-                break;
-            case DevModel::ND005D:
-                _current_range_val = nd005d_range[_range_setting];
-                break;
-            default:
-                GCS_SEND_TEXT(MAV_SEVERITY_INFO,"No specific device detected/not supported\n");
-        }
-        config[0] = (config[0] & 0xF0) + (0b0111 - _range_setting);
-        WITH_SEMAPHORE(_dev->get_semaphore());
-        _dev->transfer(config, 2, nullptr,0);
-        GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
-        hal.scheduler->delay(2); // wait for the sensor to change range
-    }
-    pressure = _pressure;
-    return true;
-}
-
-bool AP_Baro_ND015A::get_temperature(float &temperature)
-{
-    WITH_SEMAPHORE(sem);
-
-    if ((AP_HAL::millis() - _last_sample_time_ms) > 100) {
-        return false;
-    }
-
-    if (_temp_count > 0) {
-        _temperature = _temp_sum / _temp_count;
-        _temp_count = 0;
-        _temp_sum = 0;
-    }
-    temperature = _temperature;
-    return true;
+    _pressure = _press_sum / _press_count;
+    _temperature = _temp_sum / _temp_count;
+    _press_count = 0;
+    _press_sum = 0;
+    _temp_count = 0;
+    _temp_sum = 0;
+    _copy_to_frontend(instance, _pressure, _temperature);
 }
 
 #endif  // AP_Baro_ND015A_ENABLED
