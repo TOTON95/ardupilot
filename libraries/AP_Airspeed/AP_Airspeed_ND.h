@@ -40,30 +40,28 @@ public:
     AP_Airspeed_ND(AP_Airspeed &frontend, uint8_t _instance);
     ~AP_Airspeed_ND(void) {}
     
-    // probe and initialise the sensor
     bool init() override;
-
-    // return the current differential_pressure in Pascal
     bool get_differential_pressure(float &pressure) override;
-
-    // return the current temperature in degrees C, if available
     bool get_temperature(float &temperature) override;
 
 private:
-    enum class DevModel : uint8_t {
+    enum DevModel : uint8_t {
         UNKNOWN = 0,
         ND210,
         ND130,
         ND160,
         ND005D,
     };
-    void _collect();
+
     bool matchModel(uint8_t* reading);
+    bool probe(uint8_t bus, uint8_t address);
+    void _collect();
     float _get_pressure(int16_t dp_raw) const;
     float _get_temperature(int8_t dT_int, int8_t dT_frac) const;
+    bool range_change_needed(float last_pressure);
+    void update_range(void);
 
     DevModel _dev_model;
-
 
     uint8_t _range_setting; 
     uint8_t _available_ranges;
@@ -77,7 +75,7 @@ private:
     uint32_t _last_sample_time_ms;
     AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
 
-    bool probe(uint8_t bus, uint8_t address);
+    
 };
 
 #endif  // AP_AIRSPEED_ND_ENABLED
