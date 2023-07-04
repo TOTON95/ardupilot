@@ -16,41 +16,33 @@
 #pragma once
 
 #include <AP_HAL/AP_HAL_Boards.h>
-$
+
 #ifndef AP_BARO_ND015A_ENABLED
 #define AP_BARO_ND015A_ENABLED AP_AIRSPEED_BACKEND_DEFAULT_ENABLED
 #endif
 
 #if AP_BARO_ND015A_ENABLED
-
 /*
   backend driver for Superior Sensor's ND015A absolute pressure sensor
  */
-
-#include <AP_HAL/AP_HAL.h>
-#include <AP_HAL/utility/OwnPtr.h>
-#include <AP_HALgit add/I2CDevice.h>
-#include <utility>
-
 #include "AP_Baro_Backend.h"
-
 class AP_Baro_ND015A : public AP_Baro_Backend
 {
 public:
-    AP_Baro_ND015A(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
-    ~AP_Baro_ND015A(void) {}
-    
-   /* AP_Baro public interface: */
     void update() override;
-
-    // bool probe(uint8_t bus, uint8_t address);
     static AP_Baro_Backend *probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
 
 private:
+    AP_Baro_ND015A(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
+    bool init();
     bool matchModel(uint8_t* reading);
-    float _get_pressure(int16_t dp_raw) const;
+    float _get_pressure(uint16_t dp_raw) const;
     float _get_temperature(int8_t dT_int, int8_t dT_frac) const;
+    void collect();
 
+    AP_HAL::OwnPtr<AP_HAL::Device> dev;
+
+    uint8_t instance;
     float _temp_sum;
     float _press_sum;
     uint32_t _temp_count;
@@ -58,8 +50,6 @@ private:
     float _temperature;
     float _pressure;
     uint32_t _last_sample_time_ms;
-
-    
 };
 
 #endif  // AP_BARO_ND015A_ENABLED
