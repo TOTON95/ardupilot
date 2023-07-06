@@ -20,10 +20,17 @@
 
 #if AP_BARO_ND015A_ENABLED
 
+
+#include <AP_HAL/AP_HAL.h>
+#include <AP_HAL/I2CDevice.h>
+#include <AP_Common/AP_Common.h>
+#include <stdio.h>
+#include <utility>
+
 extern const AP_HAL::HAL &hal;
 
-uint8_t config[2] = {0x57, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, fixed range
-uint8_t model_sign[7] = {0x4E, 0x44, 0x30, 0x31, 0x35, 0x41, 0x00};
+uint8_t config_set[2] = {0x57, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, fixed range
+const uint8_t model_sign[7] = {0x4E, 0x44, 0x30, 0x31, 0x35, 0x41, 0x00};
 
 AP_Baro_ND015A::AP_Baro_ND015A(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> _dev)
     : AP_Baro_Backend(baro)
@@ -61,8 +68,8 @@ bool AP_Baro_ND015A::init()
     if (!dev->read(reading,12)) {
         return false;
     } else {
-        for (int i=4; i<11; i++) {
-            model[i-4] = reading[i];
+        for (int i = 0; i < 7; i++) {
+            model[i] = reading[i+4];
         }
     }
     if (!matchModel(model)) {
@@ -73,9 +80,9 @@ bool AP_Baro_ND015A::init()
         dev->set_device_type(DEVTYPE_BARO_ND015A);
         set_bus_id(instance, dev->get_bus_id());
 
-        dev->transfer(config, 2, nullptr,0);
+        dev->transfer(config_set, 2, nullptr,0);
         dev->get_semaphore()->give();
-        dev->register_periodic_callback(6757, // 148Hz ODR
+        dev->register_periodic_callback(100000, // 6757 for 148Hz ODR
             FUNCTOR_BIND_MEMBER(&AP_Baro_ND015A::collect, void));
     }
     return true;
@@ -107,10 +114,12 @@ float AP_Baro_ND015A::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 void AP_Baro_ND015A::collect()
 {
     uint8_t data[4]; //2 bytes for pressure and 2 for temperature
-
+    
+    dev->get_semaphore()->take_blocking();
     if (!dev->read(data, sizeof(data))) {
         return;
     }
+    dev->get_semaphore()->give();
 
     uint16_t dp_raw;
     dp_raw = (data[0] << 8) + data[1];
