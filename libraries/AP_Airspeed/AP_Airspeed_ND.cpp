@@ -43,7 +43,7 @@ const float nd130_range[6] = {30.0, 20.0, 10.0, 5.0, 4.0, 2.0};
 const float nd160_range[8] = {60.0, 50.0, 40.0, 30.0, 20.0, 10.0, 5.0, 2.5};
 const float nd005d_range[6] = {138.4, 110.72, 55.36, 27.68, 22.14, 13.84}; // converted psi to inH2O
 
-uint8_t config[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
+uint8_t config_setting[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
 
 
 AP_Airspeed_ND::AP_Airspeed_ND(AP_Airspeed &_frontend, uint8_t _instance) :
@@ -112,7 +112,7 @@ found_sensor:
 
     // send default configuration
     WITH_SEMAPHORE(_dev->get_semaphore());
-    _dev->transfer(config, 2, nullptr,0);
+    _dev->transfer(config_setting, 2, nullptr,0);
 
     switch(_dev_model){
         case DevModel::ND210:
@@ -132,7 +132,7 @@ found_sensor:
     // drop to 2 retries for runtime
     _dev->set_retries(2);
     
-    _dev->register_periodic_callback(6757, // 148Hz ODR 
+    _dev->register_periodic_callback(110000, //  6757 for 148Hz ODR 
                                      FUNCTOR_BIND_MEMBER(&AP_Airspeed_ND::_collect, void));
     return true;
 }
@@ -183,10 +183,11 @@ float AP_Airspeed_ND::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 void AP_Airspeed_ND::_collect()
 {
     uint8_t data[4]; //2 bytes for pressure and 2 for temperature
-
+    _dev->get_semaphore()->take_blocking();
     if (!_dev->read(data, sizeof(data))) {
         return;
     }
+    _dev->get_semaphore()->give();
 
     int16_t dp_raw;
     dp_raw = (data[0] << 8) + data[1];
@@ -232,9 +233,9 @@ void AP_Airspeed_ND::update_range()
         default:
             GCS_SEND_TEXT(MAV_SEVERITY_INFO,"No specific device detected/not supported\n");
     }
-    config[0] = (config[0] & 0xF0) + (0b0111 - _range_setting);
+    config_setting[0] = (config_setting[0] & 0xF0) + (0b0111 - _range_setting);
     WITH_SEMAPHORE(_dev->get_semaphore());
-    _dev->transfer(config, 2, nullptr,0);
+    _dev->transfer(config_setting, 2, nullptr,0);
     GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
     hal.scheduler->delay(2); // wait for the sensor to change range
 }
