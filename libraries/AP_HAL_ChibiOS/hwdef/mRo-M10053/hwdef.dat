@@ -4,7 +4,7 @@
 MCU STM32G431 STM32G431xx
 
 # bootloader starts firmware at 19k + 4k (STORAGE_FLASH_PAGES)
-FLASH_RESERVE_START_KB 19
+FLASH_RESERVE_START_KB 21
 FLASH_SIZE_KB 128
 
 # store parameters in pages 23 and 24
