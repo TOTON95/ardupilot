@@ -674,6 +674,7 @@ void AP_Baro::init(void)
                                           std::move(hal.spi->get_device(HAL_BARO_MS5611_NAME))));
 #endif
         break;
+    case AP_BoardConfig::MRO_CONTROL_ZERO:
 
     case AP_BoardConfig::PX4_BOARD_AEROFC:
 #if AP_BARO_MS56XX_ENABLED

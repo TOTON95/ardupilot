@@ -26,6 +26,7 @@ extern const AP_HAL::HAL &hal;
 // WHOAMI values
 #define LPS22HB_WHOAMI 0xB1
 #define LPS25HB_WHOAMI 0xBD
+#define ILPS22QS_WHOAMI 0xB4
 
 #define REG_ID                     0x0F
 
@@ -55,6 +56,34 @@ extern const AP_HAL::HAL &hal;
 #define STATUS_ADDR		  		   0x27
 
 //putting 1 in the MSB of those two registers turns on Auto increment for faster reading.
+
+#define ILPS22QS_CTRL_REG1_ADDR         0x10
+
+#define ILPS22QS_CTRL_REG1_AVG_4        0b000
+#define ILPS22QS_CTRL_REG1_AVG_8        0b001
+#define ILPS22QS_CTRL_REG1_AVG_16       0b010
+#define ILPS22QS_CTRL_REG1_AVG_32       0b011
+#define ILPS22QS_CTRL_REG1_AVG_64       0b100
+#define ILPS22QS_CTRL_REG1_AVG_128      0b101
+#define ILPS22QS_CTRL_REG1_AVG_512      0b111
+#define ILPS22QS_CTRL_REG1_PD           (0 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_1H       (1 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_4HZ      (2 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_10HZ     (3 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_25HZ     (4 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_50HZ     (5 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_75HZ     (6 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_100HZ    (7 << 3)
+#define ILPS22QS_CTRL_REG1_ODR_200HZ    (8 << 3)
+
+#define ILPS22QS_CTRL_REG2_FS_1260HPA   (0 << 6)
+#define ILPS22QS_CTRL_REG2_FS_4060HPA   (1 << 6)
+#define ILPS22QS_CTRL_REG2_LPFP_CFG     (1 << 5)
+#define ILPS22QS_CTRL_REG2_EN_LPFP      (1 << 4)
+#define ILPS22QS_CTRL_REG2_BDU          (1 << 3)
+#define ILPS22QS_CTRL_REG2_SWRESET      (1 << 2)
+#define ILPS22QS_CTRL_REG2_ONESHOT      (1 << 0)
+
 
 AP_Baro_LPS2XH::AP_Baro_LPS2XH(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev)
     : AP_Baro_Backend(baro)
@@ -178,6 +207,17 @@ bool AP_Baro_LPS2XH::_init()
         // request 75Hz update
         CallTime = 1000000/75;
     }
+    if (_lps2xh_type == BARO_ILPS22QS) {
+        _dev->write_register(LPS22H_CTRL_REG1, 0x00); // turn off for config
+        uint8_t config_buf[3] = {
+            ILPS22QS_CTRL_REG1_ODR_100HZ|ILPS22QS_CTRL_REG1_AVG_4,
+            ILPS22QS_CTRL_REG2_FS_1260HPA|ILPS22QS_CTRL_REG2_LPFP_CFG|ILPS22QS_CTRL_REG2_EN_LPFP|ILPS22QS_CTRL_REG2_BDU,
+            0x00
+        };
+        _dev->transfer(config_buf, 3, nullptr, 0);
+        // request 100Hz update
+        CallTime = 1000000/100;
+    }
 
     _instance = _frontend.register_sensor();
 
@@ -206,6 +246,9 @@ bool AP_Baro_LPS2XH::_check_whoami(void)
         return true;
     case LPS25HB_WHOAMI:
         _lps2xh_type = BARO_LPS25H;
+        return true;
+    case ILPS22QS_WHOAMI:
+        _lps2xh_type = BARO_ILPS22QS;
         return true;
     }
 
