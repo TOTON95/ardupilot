@@ -126,7 +126,7 @@ bool AP_Airspeed_SST::init()
     return false;
 
 found_sensor:
-    _dev->set_device_type(uint8_t(DevType::NDxxx));
+    _dev->set_device_type(uint8_t(DevType::SSTx));
     set_bus_id(_dev->get_bus_id());
     GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
 

@@ -56,6 +56,7 @@ private:
         ND130,
         ND160,
         ND005D,
+        VN131,
     };
     void _collect();
     bool matchModel(uint8_t* reading);

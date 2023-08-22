@@ -53,6 +53,7 @@
 #include "AP_Airspeed_NMEA.h"
 #include "AP_Airspeed_MSP.h"
 #include "AP_Airspeed_SITL.h"
+#include "AP_Airspeed_SST.h"
 extern const AP_HAL::HAL &hal;
 
 #include <AP_Vehicle/AP_FixedWing.h>
@@ -383,6 +384,11 @@ void AP_Airspeed::allocate()
             sensor[i] = new AP_Airspeed_MS5525(*this, i, AP_Airspeed_MS5525::MS5525_ADDR_2);
 #endif
             break;
+#if AP_AIRSPEED_SST_ENABLED
+        case TYPE_I2C_SST:
+            sensor[i] =  new AP_Airspeed_SST(*this, i);
+            break;
+#endif
         case TYPE_I2C_SDP3X:
 #if AP_AIRSPEED_SDP3X_ENABLED
             sensor[i] = new AP_Airspeed_SDP3X(*this, i);
