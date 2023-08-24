@@ -15,11 +15,10 @@
 
 #pragma once
 
+#include "AP_Baro_Backend.h"
+
 #include <AP_HAL/AP_HAL_Boards.h>
 
-#ifndef AP_BARO_SST_ENABLED
-#define AP_BARO_SST_ENABLED AP_AIRSPEED_BACKEND_DEFAULT_ENABLED
-#endif
 
 #if AP_BARO_SST_ENABLED
 /*

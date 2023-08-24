@@ -35,7 +35,7 @@ extern const AP_HAL::HAL &hal;
 
 uint16_t print_counter=0;
 
-uint8_t config[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
+uint8_t config_reg[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
 
 uint8_t MN_ND210[8] = {0x4E, 0x44, 0x32, 0x31, 0x30, 0x00, 0x00, 0x00};
 uint8_t MN_ND005D[8] = {0x4E, 0x44, 0x30, 0x30, 0x35, 0x44, 0x00, 0x00};
@@ -132,7 +132,7 @@ found_sensor:
 
     // send default configuration
     WITH_SEMAPHORE(_dev->get_semaphore());
-    _dev->transfer(config, 2, nullptr,0);
+    _dev->transfer(config_reg, 2, nullptr,0);
 
 
     switch(_dev_model){
@@ -242,9 +242,9 @@ bool AP_Airspeed_SST::get_differential_pressure(float &pressure)
             default:
                 GCS_SEND_TEXT(MAV_SEVERITY_INFO,"No specific device detected/not supported\n");
         }
-        config[0] = (config[0] & 0xF0) + (0b0111 - _range_setting);
+        config_reg[0] = (config_reg[0] & 0xF0) + (0b0111 - _range_setting);
         WITH_SEMAPHORE(_dev->get_semaphore());
-        _dev->transfer(config, 2, nullptr,0);
+        _dev->transfer(config_reg, 2, nullptr,0);
         GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
         hal.scheduler->delay(2); // wait for the sensor to change range
     }
