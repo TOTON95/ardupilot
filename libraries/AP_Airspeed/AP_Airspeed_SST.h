@@ -15,7 +15,6 @@
 
 #pragma once
 #include "AP_Airspeed_config.h"
-#include <AP_HAL/AP_HAL_Boards.h>
 
 #if AP_AIRSPEED_SST_ENABLED
 
@@ -34,6 +33,7 @@ class AP_Airspeed_SST : public AP_Airspeed_Backend
 {
 public:
     AP_Airspeed_SST(AP_Airspeed &frontend, uint8_t _instance);
+    static AP_Airspeed_Backend *probe(AP_Airspeed &frontend, uint8_t _instance, AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev, const float _range_inH2O);
     ~AP_Airspeed_SST(void) {}
     
     // probe and initialise the sensor
@@ -56,7 +56,7 @@ private:
     };
     void _collect();
     bool matchModel(uint8_t* reading);
-    float _get_pressure(int16_t dp_raw) const;
+    float _get_pressure(int32_t dp_raw) const;
     float _get_temperature(int8_t dT_int, int8_t dT_frac) const;
 
     DevModel _dev_model;

@@ -36,38 +36,47 @@ extern const AP_HAL::HAL &hal;
 uint16_t print_counter=0;
 
 uint8_t config_reg[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
-
+uint8_t configVN_reg [2] = {0x29, 0x01};
 uint8_t MN_ND210[8] = {0x4E, 0x44, 0x32, 0x31, 0x30, 0x00, 0x00, 0x00};
-uint8_t MN_ND005D[8] = {0x4E, 0x44, 0x30, 0x30, 0x35, 0x44, 0x00, 0x00};
+uint8_t MN_VN131CM[8] = {0x56, 0x4E, 0x31, 0x33, 0x31, 0x43, 0x4D, 0x00};
+
 
 float nd210_range[7] = {10.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.25}; // all in inH2O
 float nd130_range[6] = {30.0, 20.0, 10.0, 5.0, 4.0, 2.0};
-float nd160_range[8] = {60.0, 50.0, 40.0, 30.0, 20.0, 10.0, 5.0, 2.5};
-float nd005d_range[6] = {138.4, 110.72, 55.36, 27.68, 22.14, 13.84}; // converted psi to inH2O
+float vn131_range[8] = {130.0, 120.0, 110.0, 100.0, 90.0, 80.0, 70.0, 60.0}; //converted cmH2O to in H2O
 
 AP_Airspeed_SST::AP_Airspeed_SST(AP_Airspeed &_frontend, uint8_t _instance) :
     AP_Airspeed_Backend(_frontend, _instance)
 {
 }
 
-bool AP_Airspeed_SST::matchModel(uint8_t* reading) {
-  
-  for (int i = 0; i < 8; i++) {
-    if (reading[i] != MN_ND210[i]) {
-      goto probeND005;
+bool AP_Airspeed_SST::matchModel(uint8_t* reading) 
+{
+    for (int i = 0; i < 8; i++) { 
+        if(reading[i] != MN_VN131CM[i]) {
+            goto probeND210;
+        }
+        _dev_model = DevModel::VN131;
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO,"VN131CM dev type detected.\n");
+        return true;
     }
-    _dev_model = DevModel::ND210;
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"ND210 dev type detected.\n");
-    return true;
-  }
-  probeND005:
-  for (int i = 0; i < 8; i++) {
-    if (reading[i] != MN_ND005D[i]) {
-      return false;
+    probeND210:
+    for (int i = 0; i < 8; i++) {
+        if (reading[i] != MN_ND210[i]) {
+            goto probeND005;
+        }
+        _dev_model = DevModel::ND210;
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO,"ND210 dev type detected.\n");
+        return true;
     }
-    _dev_model = DevModel::ND005D;
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "ND005D dev type detected.\n");
-  }
+    probeND005:
+    for (int i = 0; i < 8; i++) {
+        if (reading[i] != MN_ND005D[i]) {
+            return false;
+        }
+        _dev_model = DevModel::ND005D;
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "ND005D dev type detected.\n");
+    }
   return true;
 }
 
@@ -81,15 +90,13 @@ bool AP_Airspeed_SST::probe(uint8_t bus, uint8_t address)
     WITH_SEMAPHORE(_dev->get_semaphore());
 
     _dev->set_retries(5);
-    uint8_t reading[12]= {'\0'};
+    uint8_t reading[14]= {'\0'};
     uint8_t model[8] = {'\0'};
-    if(!_dev->read(reading, 12)){
+    if(!_dev->read(reading, 14)){
         return false;
     }else{
-        for (int i=0; i<12; i++){
-            if(i>3){
-                model[i-4]= reading[i];
-            }
+        for (int i=6; i<14; i++){
+                model[i-6]= reading[i];
         }
     }
     return matchModel(model);
@@ -98,7 +105,7 @@ bool AP_Airspeed_SST::probe(uint8_t bus, uint8_t address)
 // probe and initialise the sensor
 bool AP_Airspeed_SST::init()
 {
-    static const uint8_t addresses[] = { ND_I2C_ADDR1, ND_I2C_ADDR2 };
+    static const uint8_t addresses[] = { ND_I2C_ADDR1 };
     if (bus_is_confgured()) {
         for (uint8_t addr : addresses) {
             if (probe(get_bus(), addr)) {
@@ -121,7 +128,6 @@ bool AP_Airspeed_SST::init()
             }
         }
     }
-
     GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found", get_instance());
     return false;
 
@@ -146,6 +152,11 @@ found_sensor:
             _range_setting = 3;
             _current_range_val = nd005d_range[_range_setting];
             break;
+        case DevModel::VN131:
+            _available_ranges = 8;
+            _range_setting = 3;
+            _current_range_val = vn131_range[_range_setting];
+            break;
         default:
             GCS_SEND_TEXT(MAV_SEVERITY_ERROR,"ND not setup correctly");
     }
@@ -161,13 +172,22 @@ found_sensor:
 /*
     convert raw pressure to pressure in Pascals
 */
-float AP_Airspeed_SST::_get_pressure(int16_t dp_raw) const
+float AP_Airspeed_SST::_get_pressure(int32_t dp_raw) const
 {
     const float inH20_to_Pa = 249.08f;
+    const float cmH20_to_Pa = 98.06f;
     const float margin = 29491.2f;
+    const float margin24b = 7549746.3f;
+    float press = -0.1010;
 
-    float diff_press_inH2O  = (dp_raw*_current_range_val)/margin;
-    float press  = diff_press_inH2O * inH20_to_Pa;
+    if(_dev_model == DevModel::VN131) {
+        float diff_press_cmH2O = _current_range_val*((dp_raw - 8388607.5f)/margin);
+        press = diff_press_cmH2O * cmH20_to_Pa;
+    } else {
+        float diff_press_inH2O  = (_current_range_val*dp_raw)/margin;
+        press  = diff_press_inH2O * inH20_to_Pa;
+    }
+    
     return press;
 }
 
@@ -183,17 +203,17 @@ float AP_Airspeed_SST::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 // read the values from the sensor
 void AP_Airspeed_SST::_collect()
 {
-    uint8_t data[4]; //2 bytes for pressure and 2 for temperature
+    uint8_t data[5]; //3 bytes for pressure and 2 for temperature
 
     if (!_dev->read(data, sizeof(data))) {
         return;
     }
 
-    int16_t dp_raw;
-    dp_raw = (data[0] << 8) + data[1];
+    int32_t dp_raw;
+    dp_raw = (data << 16) + (data[2] << 8) + data[3];
 
     float press  = _get_pressure(dp_raw);
-    float temp  = _get_temperature(data[2], data[3]);
+    float temp  = _get_temperature(data[4], data[5]);
 
     WITH_SEMAPHORE(sem);
 

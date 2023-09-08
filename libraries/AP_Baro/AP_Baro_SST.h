@@ -35,7 +35,8 @@ private:
     AP_Baro_SST(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev);
     bool init();
     bool matchModel(uint8_t* reading);
-    float _get_pressure(uint16_t dp_raw) const;
+    void set_configuration(void);
+    float _get_pressure(uint32_t dp_raw) const;
     float _get_temperature(int8_t dT_int, int8_t dT_frac) const;
     void collect();
 

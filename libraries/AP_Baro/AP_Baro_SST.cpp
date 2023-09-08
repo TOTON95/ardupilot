@@ -20,6 +20,7 @@
 
 #if AP_BARO_SST_ENABLED
 
+#include <hal.h>
 #include <AP_HAL/AP_HAL.h>
 #include <AP_HAL/I2CDevice.h>
 #include <AP_Common/AP_Common.h>
@@ -28,8 +29,9 @@
 
 extern const AP_HAL::HAL &hal;
 
-uint8_t config[2] = {0x57, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, fixed range
+const uint8_t usr_config[2] = {0x29, 0x03}; // 800-1100 range, bw limit set to 100Hz-> 343Hz rate
 uint8_t model_sign[7] = {0x56, 0x4E, 0x30, 0x32, 0x36, 0x43, 0x4D};
+uint8_t vn_baro_sign[7] = {0x56, 0x4E, 0x2D, 0x42, 0x41, 0x52, 0x4F};
 
 AP_Baro_SST::AP_Baro_SST(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> _dev)
     : AP_Baro_Backend(baro)
@@ -52,46 +54,83 @@ AP_Baro_Backend *AP_Baro_SST::probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device
 
 bool AP_Baro_SST::matchModel(uint8_t* reading) {
   for (uint8_t i = 0; i < 7; i++) {
-    if (reading[i] != model_sign[i]) {
+    if (reading[i] != vn_baro_sign[i]) {
       return false;
     }
   }
   return true;
 }
 
+void AP_Baro_SST::set_configuration(void)
+{
+    uint8_t recv[5];
+    WITH_SEMAPHORE(dev->get_semaphore());
+
+    // i2cMasterTransmitTimeout(I2CD, (0x2C << 1), usr_config, 2, nullptr, 0, TIME_INFINITE);
+    dev->transfer(usr_config, 2, recv, 2);
+
+    // uint8_t buf[5];
+	// memcpy(buf, config, 2);
+	// bool ret = dev->transfer(&buf[0], 2, nullptr, 2);
+    // uint8_t reg = 0x00;
+    // uint8_t val = 0;
+    // dev->transfer(&reg, 1, &val, 1);
+    // return ret;
+    // return dev->write_register(0x29, 0x03);
+    // return dev->write_register(0x01, config[1]);
+}
+
 bool AP_Baro_SST::init()
 {
-    dev->get_semaphore()->take_blocking();
-    uint8_t reading[12] = {'\0'};
+    // dev->get_semaphore()->take_blocking();
+    
+    // set_configuration();
+    
+    uint8_t reading[24] = {'\0'};
     uint8_t model[7] = {'\0'};
-    if (!dev->read(reading,12)) {
+
+    dev->get_semaphore()->take_blocking();
+    dev->set_speed(AP_HAL::Device::SPEED_HIGH);
+    dev->set_retries(2);
+    set_configuration();
+    hal.scheduler->delay(10);
+    if (!dev->read(reading,24)) {
+        dev->get_semaphore()->give();
         return false;
     } else {
         for (int i=0; i < 7; i++) {
-            model[i] = reading[i+4];
+            model[i] = reading[i+6];
         }
     }
+    
     if (!matchModel(model)) {
-        return false;
-    } else {
-        instance = _frontend.register_sensor();
-        dev->set_retries(2);
-        dev->set_device_type(DEVTYPE_BARO_SST);
-        set_bus_id(instance, dev->get_bus_id());
-        ::printf("Found and matched ND015A device.\n");
-
-        dev->transfer(config, 2, nullptr,0);
         dev->get_semaphore()->give();
-        dev->register_periodic_callback(6757, // 148Hz ODR
-            FUNCTOR_BIND_MEMBER(&AP_Baro_SST::collect, void));
+        return false;
     }
+    hal.scheduler->delay(55);
+    
+    // if (!set_configuration()) {
+    //     dev->get_semaphore()->give();
+    //     return false;
+    // }
+
+    instance = _frontend.register_sensor();
+    dev->set_device_type(DEVTYPE_BARO_SST);
+    set_bus_id(instance, dev->get_bus_id());
+
+    // ::printf("Found and matched VN-BARO device.\n");
+    
+    dev->get_semaphore()->give();
+    dev->register_periodic_callback(10000, //2751? 363.5Hz = 1.09kHz/{3} from config[1]
+        FUNCTOR_BIND_MEMBER(&AP_Baro_SST::collect, void));
+
     return true;
 }
 
 /*
     convert raw pressure to pressure in psi
 */
-float AP_Baro_SST::_get_pressure(uint16_t dp_raw) const
+float AP_Baro_SST::_get_pressure(uint32_t dp_raw) const
 {
     const float psi_to_Pa = 6894.757f;
     const float margin = 5898.24f;
@@ -113,17 +152,18 @@ float AP_Baro_SST::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 
 void AP_Baro_SST::collect()
 {
-    uint8_t data[4]; //2 bytes for pressure and 2 for temperature
+    uint8_t data[6]; //mode, 3 bytes for pressure and 2 for temperature
     WITH_SEMAPHORE(dev->get_semaphore());
+    set_configuration();
     if (!dev->read(data, sizeof(data))) {
         return;
     }
 
-    uint16_t dp_raw;
-    dp_raw = (data[0] << 8) + data[1];
+    uint32_t dp_raw;
+    dp_raw = (data[1] << 16) + (data[2] << 8) + data[3];
 
     float press  = _get_pressure(dp_raw);
-    float temp  = _get_temperature(data[2], data[3]);
+    float temp  = _get_temperature(data[4], data[5]);
 
     WITH_SEMAPHORE(_sem);
     _press_sum += press ;
