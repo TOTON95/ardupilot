@@ -27,6 +27,7 @@
 #include "hwdef/common/flash.h"
 #include <AP_ROMFS/AP_ROMFS.h>
 #include <AP_Common/ExpandingString.h>
+#include <AP_InternalError/AP_InternalError.h>
 #include "sdcard.h"
 #include "shared_dma.h"
 #if defined(HAL_PWM_ALARM) || HAL_DSHOT_ALARM_ENABLED || HAL_CANMANAGER_ENABLED || HAL_USE_PWM == TRUE
@@ -137,7 +138,7 @@ void *Util::heap_realloc(void *heap, void *ptr, size_t old_size, size_t new_size
     void *new_mem = chHeapAlloc((memory_heap_t *)heap, new_size);
     if (new_mem != nullptr) {
         const size_t old_size2 = chHeapGetSize(ptr);
-#ifdef HAL_DEBUG_BUILD
+#if defined(HAL_DEBUG_BUILD) && !defined(IOMCU_FW)
         if (new_size != 0 && old_size2 != old_size) {
             INTERNAL_ERROR(AP_InternalError::error_t::invalid_arg_or_result);
         }
@@ -705,9 +706,7 @@ bool Util::get_random_vals(uint8_t* data, size_t size)
 {
 #if HAL_USE_HW_RNG && defined(RNG)
     size_t true_random_vals = stm32_rand_generate_nonblocking(data, size);
-    if (true_random_vals == size) {
-        return true;
-    } else {
+    if (true_random_vals != size) {
         if (!(true_random_vals % 2)) {
             data[true_random_vals] = (uint8_t)(get_random16() & 0xFF);
             true_random_vals++;
@@ -718,10 +717,18 @@ bool Util::get_random_vals(uint8_t* data, size_t size)
             true_random_vals+=sizeof(uint16_t);
         }
     }
-    return true;
 #else
-    return false;
+    size_t true_random_vals = 0;
+    while(true_random_vals < size) {
+        uint16_t val = get_random16();
+        memcpy(&data[true_random_vals], &val, sizeof(uint16_t));
+        true_random_vals+=sizeof(uint16_t);
+    }
+    if (size % 2) {
+        data[size-1] = get_random16() & 0xFF;
+    }
 #endif
+    return true;
 }
 
 /**

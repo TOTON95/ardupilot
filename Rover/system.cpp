@@ -188,10 +188,6 @@ void Rover::startup_ground(void)
 #if AP_SCRIPTING_ENABLED
     g2.scripting.init();
 #endif // AP_SCRIPTING_ENABLED
-
-    // we don't want writes to the serial port to cause us to pause
-    // so set serial ports non-blocking once we are ready to drive
-    serial_manager.set_blocking_writes_all(false);
 }
 
 // update the ahrs flyforward setting which can allow
@@ -285,7 +281,7 @@ bool Rover::set_mode(Mode &new_mode, ModeReason reason)
     old_mode.exit();
 
     control_mode_reason = reason;
-    logger.Write_Mode(control_mode->mode_number(), control_mode_reason);
+    logger.Write_Mode((uint8_t)control_mode->mode_number(), control_mode_reason);
     gcs().send_message(MSG_HEARTBEAT);
 
     notify_mode(control_mode);
@@ -295,9 +291,14 @@ bool Rover::set_mode(Mode &new_mode, ModeReason reason)
 bool Rover::set_mode(const uint8_t new_mode, ModeReason reason)
 {
     static_assert(sizeof(Mode::Number) == sizeof(new_mode), "The new mode can't be mapped to the vehicles mode number");
-    Mode *mode = rover.mode_from_mode_num((enum Mode::Number)new_mode);
+    return rover.set_mode(static_cast<Mode::Number>(new_mode), reason);
+}
+
+bool Rover::set_mode(Mode::Number new_mode, ModeReason reason)
+{
+    Mode *mode = rover.mode_from_mode_num(new_mode);
     if (mode == nullptr) {
-        notify_no_such_mode(new_mode);
+        notify_no_such_mode((uint8_t)new_mode);
         return false;
     }
     return rover.set_mode(*mode, reason);
@@ -321,7 +322,7 @@ void Rover::startup_INS_ground(void)
 void Rover::notify_mode(const Mode *mode)
 {
     AP_Notify::flags.autopilot_mode = mode->is_autopilot_mode();
-    notify.flags.flight_mode = mode->mode_number();
+    notify.flags.flight_mode = (uint8_t)mode->mode_number();
     notify.set_flight_mode_str(mode->name4());
 }
 

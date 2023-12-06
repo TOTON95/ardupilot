@@ -85,7 +85,7 @@
 #error "Unsupported MCU for FDCAN"
 #endif
 
-extern AP_HAL::HAL& hal;
+extern const AP_HAL::HAL& hal;
 
 #define STR(x) #x
 #define XSTR(x) STR(x)
@@ -568,7 +568,7 @@ bool CANIface::init(const uint32_t bitrate, const uint32_t fdbitrate, const Oper
     if (can_ifaces[self_index_] == nullptr) {
         can_ifaces[self_index_] = this;
 #if !defined(HAL_BOOTLOADER_BUILD)
-        hal.can[self_index_] = this;
+        AP_HAL::get_HAL_mutable().can[self_index_] = this;
 #endif
     }
 
@@ -721,7 +721,9 @@ bool CANIface::init(const uint32_t bitrate, const uint32_t fdbitrate, const Oper
 #endif
     can_->ILE = 0x3;
 
+#if HAL_CANFD_SUPPORTED
     can_->CCCR |= FDCAN_CCCR_FDOE | FDCAN_CCCR_BRSE; // enable sending CAN FD frames, and Bitrate switching
+#endif
 
     // If mode is Filtered then we finish the initialisation in configureFilter method
     // otherwise we finish here
@@ -794,6 +796,7 @@ void CANIface::handleTxCompleteInterrupt(const uint64_t timestamp_us)
 
             if (!pending_tx_[i].pushed) {
                 stats.tx_success++;
+                stats.last_transmit_us = timestamp_us;
                 if (pending_tx_[i].canfd_frame) {
                     stats.fdf_tx_success++;
                 }

@@ -245,7 +245,12 @@ void Plane::update_logging10(void)
         ahrs.Write_AOA_SSA();
     } else if (log_faster) {
         ahrs.Write_AOA_SSA();
-    } 
+    }
+#if HAL_MOUNT_ENABLED
+    if (should_log(MASK_LOG_CAMERA)) {
+        camera_mount.write_log();
+    }
+#endif
 }
 
 /*
@@ -262,7 +267,9 @@ void Plane::update_logging25(void)
 
     if (should_log(MASK_LOG_CTUN)) {
         Log_Write_Control_Tuning();
-        AP::ins().write_notch_log_messages();
+        if (!should_log(MASK_LOG_NOTCH_FULLRATE)) {
+            AP::ins().write_notch_log_messages();
+        }
 #if HAL_GYROFFT_ENABLED
         gyro_fft.write_log_messages();
 #endif
@@ -350,6 +357,16 @@ void Plane::one_second_loop()
         !is_equal(G_Dt, scheduler.get_loop_period_s())) {
         INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
     }
+
+    const float loop_rate = AP::scheduler().get_filtered_loop_rate_hz();
+#if HAL_QUADPLANE_ENABLED
+    if (quadplane.available()) {
+        quadplane.attitude_control->set_notch_sample_rate(loop_rate);
+    }
+#endif
+    rollController.set_notch_sample_rate(loop_rate);
+    pitchController.set_notch_sample_rate(loop_rate);
+    yawController.set_notch_sample_rate(loop_rate);
 }
 
 void Plane::three_hz_loop()

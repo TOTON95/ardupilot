@@ -13,7 +13,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 /*
-  suppport for serial connected AHRS systems
+  support for serial connected AHRS systems
  */
 
 #pragma once
@@ -46,9 +46,18 @@ public:
 #if AP_EXTERNAL_AHRS_VECTORNAV_ENABLED
         VecNav = 1,
 #endif
-#if AP_EXTERNAL_AHRS_LORD_ENABLED
-        LORD = 2,
+#if AP_EXTERNAL_AHRS_MICROSTRAIN5_ENABLED
+        MicroStrain5 = 2,
 #endif
+        // 3 reserved for AdNav
+        // 4 reserved for CINS
+        // 5 reserved for InertialLabs
+        // 6 reserved for Trimble
+#if AP_EXTERNAL_AHRS_MICROSTRAIN7_ENABLED
+        MicroStrain7 = 7,
+#endif
+        // 8 reserved for SBG
+        // 9 reserved for EulerNav
     };
 
     static AP_ExternalAHRS *get_singleton(void) {

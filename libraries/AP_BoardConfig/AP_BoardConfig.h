@@ -67,6 +67,7 @@ public:
         PX4_BOARD_FMUV6    = 39,
         FMUV6_BOARD_HOLYBRO_6X = 40,
         FMUV6_BOARD_CUAV_6X = 41,
+        FMUV6_BOARD_HOLYBRO_6X_REV6 = 42,
         PX4_BOARD_OLDDRIVERS = 100,
     };
 
@@ -89,6 +90,14 @@ public:
         return _singleton?uint8_t(_singleton->state.io_enable.get()):0;
 #else
         return 0;
+#endif
+    }
+
+    static bool io_dshot(void) {
+#if HAL_WITH_IO_MCU_DSHOT
+        return io_enabled() && _singleton?_singleton->state.io_dshot.get():false;
+#else
+        return false;
 #endif
     }
 
@@ -146,8 +155,18 @@ public:
         UNLOCK_FLASH = (1<<4),
         WRITE_PROTECT_FLASH = (1<<5),
         WRITE_PROTECT_BOOTLOADER = (1<<6),
-        SKIP_BOARD_VALIDATION = (1<<7)
+        SKIP_BOARD_VALIDATION = (1<<7),
+        DISABLE_ARMING_GPIO = (1<<8)
     };
+
+    //return true if arming gpio output is disabled
+    static bool arming_gpio_disabled(void) {
+        return _singleton?(_singleton->_options & DISABLE_ARMING_GPIO)!=0:1;
+    }
+    
+#ifndef HAL_ARM_GPIO_POL_INVERT
+#define HAL_ARM_GPIO_POL_INVERT 0
+#endif
 
     // return true if ftp is disabled
     static bool ftp_disabled(void) {
@@ -218,6 +237,7 @@ private:
 #endif
         AP_Int8 board_type;
         AP_Int8 io_enable;
+        AP_Int8 io_dshot;
     } state;
 
 #if AP_SDCARD_STORAGE_ENABLED
@@ -269,9 +289,11 @@ private:
     // direct attached radio
     AP_Radio _radio;
 #endif
-    
+
+#if AP_RTC_ENABLED
     // real-time-clock; private because access is via the singleton
     AP_RTC rtc;
+#endif
 
 #if HAL_HAVE_BOARD_VOLTAGE
     AP_Float _vbus_min;

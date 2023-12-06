@@ -22,6 +22,7 @@
 #include "ModeReason.h" // reasons can't be defined in this header due to circular loops
 
 #include <AP_AHRS/AP_AHRS.h>
+#include <AP_AccelCal/AP_AccelCal.h>
 #include <AP_Airspeed/AP_Airspeed.h>
 #include <AP_Baro/AP_Baro.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>     // board configuration library
@@ -44,6 +45,7 @@
 #include <AP_Hott_Telem/AP_Hott_Telem.h>
 #include <AP_ESC_Telem/AP_ESC_Telem.h>
 #include <AP_GyroFFT/AP_GyroFFT.h>
+#include <AP_Networking/AP_Networking.h>
 #include <AP_VisualOdom/AP_VisualOdom.h>
 #include <AP_VideoTX/AP_VideoTX.h>
 #include <AP_MSP/AP_MSP.h>
@@ -60,6 +62,7 @@
 #include <AP_CheckFirmware/AP_CheckFirmware.h>
 #include <Filter/LowPassFilter.h>
 #include <AP_KDECAN/AP_KDECAN.h>
+#include <Filter/AP_Filter.h>
 
 class AP_DDS_Client;
 
@@ -175,8 +178,9 @@ public:
     virtual bool get_circle_radius(float &radius_m) { return false; }
     virtual bool set_circle_rate(float rate_dps) { return false; }
 
-    // set steering and throttle (-1 to +1) (for use by scripting with Rover)
+    // get or set steering and throttle (-1 to +1) (for use by scripting with Rover)
     virtual bool set_steering_and_throttle(float steering, float throttle) { return false; }
+    virtual bool get_steering_and_throttle(float& steering, float& throttle) { return false; }
 
     // set turn rate in deg/sec and speed in meters/sec (for use by scripting with Rover)
     virtual bool set_desired_turn_rate_and_speed(float turn_rate, float speed) { return false; }
@@ -286,7 +290,9 @@ protected:
     float G_Dt;
 
     // sensor drivers
+#if AP_GPS_ENABLED
     AP_GPS gps;
+#endif
     AP_Baro barometer;
     Compass compass;
     AP_InertialSensor ins;
@@ -356,6 +362,10 @@ protected:
 
 #if AP_TRAMP_ENABLED
     AP_Tramp tramp;
+#endif
+
+#if AP_NETWORKING_ENABLED
+    AP_Networking networking;
 #endif
 
 #if HAL_EFI_ENABLED
@@ -460,6 +470,9 @@ private:
     uint32_t _last_internal_errors;  // backup of AP_InternalError::internal_errors bitmask
 
     AP_CustomRotations custom_rotations;
+#if AP_FILTER_ENABLED
+    AP_Filters filters;
+#endif
 
     // Bitmask of modes to disable from gcs
     AP_Int32 flight_mode_GCS_block;

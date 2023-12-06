@@ -14,6 +14,10 @@
  */
 #pragma once
 
+#include "AP_GPS_config.h"
+
+#if AP_GPS_ENABLED
+
 #include <AP_HAL/AP_HAL.h>
 #include <inttypes.h>
 #include <AP_Common/AP_Common.h>
@@ -57,10 +61,6 @@
 
 #ifndef GPS_MOVING_BASELINE
 #define GPS_MOVING_BASELINE GPS_MAX_RECEIVERS>1
-#endif
-
-#ifndef HAL_MSP_GPS_ENABLED
-#define HAL_MSP_GPS_ENABLED HAL_MSP_SENSORS_ENABLED
 #endif
 
 #if GPS_MOVING_BASELINE
@@ -131,6 +131,7 @@ public:
         GPS_TYPE_UAVCAN_RTK_ROVER = 23,
         GPS_TYPE_UNICORE_NMEA = 24,
         GPS_TYPE_UNICORE_MOVINGBASE_NMEA = 25,
+        GPS_TYPE_SBF_DUAL_ANTENNA = 26,
 #if HAL_SIM_GPS_ENABLED
         GPS_TYPE_SITL = 100,
 #endif
@@ -249,7 +250,11 @@ public:
     void handle_msp(const MSP::msp_gps_data_message_t &pkt);
 #endif
 #if HAL_EXTERNAL_AHRS_ENABLED
-    void handle_external(const AP_ExternalAHRS::gps_data_message_t &pkt);
+    // Retrieve the first instance ID that is configured as type GPS_TYPE_EXTERNAL_AHRS.
+    // Can be used by external AHRS systems that only report one GPS to get the instance ID.
+    // Returns true if an instance was found, false otherwise.
+    bool get_first_external_instance(uint8_t& instance) const WARN_IF_UNUSED;
+    void handle_external(const AP_ExternalAHRS::gps_data_message_t &pkt, const uint8_t instance);
 #endif
 
     // Accessor functions
@@ -601,7 +606,6 @@ protected:
     AP_Int16 _delay_ms[GPS_MAX_RECEIVERS];
     AP_Int8  _com_port[GPS_MAX_RECEIVERS];
     AP_Int8 _blend_mask;
-    AP_Float _blend_tc;
     AP_Int16 _driver_options;
     AP_Int8 _primary;
 #if HAL_ENABLE_DRONECAN_DRIVERS
@@ -730,11 +734,11 @@ private:
     void inject_data(const uint8_t *data, uint16_t len);
     void inject_data(uint8_t instance, const uint8_t *data, uint16_t len);
 
+#if defined(GPS_BLENDED_INSTANCE)
     // GPS blending and switching
     Vector3f _blended_antenna_offset; // blended antenna offset
     float _blended_lag_sec; // blended receiver lag in seconds
     float _blend_weights[GPS_MAX_RECEIVERS]; // blend weight for each GPS. The blend weights must sum to 1.0 across all instances.
-    float _omega_lpf; // cutoff frequency in rad/sec of LPF applied to position offsets
     bool _output_is_blended; // true when a blended GPS solution being output
     uint8_t _blend_health_counter;  // 0 = perfectly health, 100 = very unhealthy
 
@@ -743,6 +747,7 @@ private:
 
     // calculate the blended state
     void calc_blended_state(void);
+#endif
 
     bool should_log() const;
 
@@ -785,3 +790,5 @@ private:
 namespace AP {
     AP_GPS &gps();
 };
+
+#endif  // AP_GPS_ENABLED

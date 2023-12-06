@@ -22,8 +22,6 @@
 #include <GCS_MAVLink/GCS.h>
 #include <AC_Avoidance/AC_Avoid.h>
 
-extern const AP_HAL::HAL& hal;
-
 #define AR_POSCON_TIMEOUT_MS            100     // timeout after 0.1 sec
 #define AR_POSCON_POS_P                 0.2f    // default position P gain
 #define AR_POSCON_VEL_P                 1.0f    // default velocity P gain
@@ -34,6 +32,10 @@ extern const AP_HAL::HAL& hal;
 #define AR_POSCON_VEL_FILT              5.0f    // default velocity filter
 #define AR_POSCON_VEL_FILT_D            5.0f    // default velocity D term filter
 #define AR_POSCON_DT                    0.02f   // default dt for PID controllers
+
+extern const AP_HAL::HAL& hal;
+
+AR_PosControl *AR_PosControl::_singleton;
 
 const AP_Param::GroupInfo AR_PosControl::var_info[] = {
 
@@ -54,7 +56,7 @@ const AP_Param::GroupInfo AR_PosControl::var_info[] = {
     // @Param: _VEL_I
     // @DisplayName: Velocity (horizontal) I gain
     // @Description: Velocity (horizontal) I gain.  Corrects long-term difference between desired and actual velocity to a target acceleration
-    // @Range: 0.02 1.00
+    // @Range: 0.00 1.00
     // @Increment: 0.01
     // @User: Advanced
 
@@ -103,6 +105,7 @@ AR_PosControl::AR_PosControl(AR_AttitudeControl& atc) :
     _p_pos(AR_POSCON_POS_P),
     _pid_vel(AR_POSCON_VEL_P, AR_POSCON_VEL_I, AR_POSCON_VEL_D, AR_POSCON_VEL_FF, AR_POSCON_VEL_IMAX, AR_POSCON_VEL_FILT, AR_POSCON_VEL_FILT_D)
 {
+    _singleton = this;
     AP_Param::setup_object_defaults(this, var_info);
 }
 
@@ -138,9 +141,11 @@ void AR_PosControl::update(float dt)
     }
 
     // calculation velocity error
+    bool stopping = false;
     if (_vel_desired_valid) {
         // add target velocity to desired velocity from position error
         _vel_target += _vel_desired;
+        stopping = _vel_desired.is_zero();
     }
 
     // limit velocity to maximum speed
@@ -189,19 +194,21 @@ void AR_PosControl::update(float dt)
     const Vector2f vel_target_FR = AP::ahrs().earth_to_body2D(_vel_target);
 
     // desired speed is normally the forward component (only) of the target velocity
-    // but we do not let it fall below the minimum turn speed unless the vehicle is slowing down
-    const float abs_des_speed_min = MIN(_vel_target.length(), turn_speed_min);
-    float des_speed;
-    if (_reversed != backing_up) {
-        // if reversed or backing up desired speed will be negative
-        des_speed = MIN(-abs_des_speed_min, vel_target_FR.x);
-    } else {
-        des_speed = MAX(abs_des_speed_min, vel_target_FR.x);
+    float des_speed = vel_target_FR.x;
+    if (!stopping) {
+        // do not let target speed fall below the minimum turn speed unless the vehicle is slowing down
+        const float abs_des_speed_min = MIN(_vel_target.length(), turn_speed_min);
+        if (_reversed != backing_up) {
+            // if reversed or backing up desired speed will be negative
+            des_speed = MIN(-abs_des_speed_min, vel_target_FR.x);
+        } else {
+            des_speed = MAX(abs_des_speed_min, vel_target_FR.x);
+        }
     }
     _desired_speed = _atc.get_desired_speed_accel_limited(des_speed, dt);
 
     // calculate turn rate from desired lateral acceleration
-    _desired_lat_accel = accel_target_FR.y;
+    _desired_lat_accel = stopping ? 0 : accel_target_FR.y;
     _desired_turn_rate_rads = _atc.get_turn_rate_from_lat_accel(_desired_lat_accel, _desired_speed);
 }
 
@@ -347,6 +354,13 @@ Vector2p AR_PosControl::get_pos_error() const
 
     // get current position
     return (_pos_target - curr_pos_NE.topostype());
+}
+
+// get the slew rate value for velocity.  used for oscillation detection in lua scripts
+void AR_PosControl::get_srate(float &velocity_srate)
+{
+    // slew rate is the same for x and y axis
+    velocity_srate = _pid_vel.get_pid_info_x().slew_rate;
 }
 
 // write PSC logs

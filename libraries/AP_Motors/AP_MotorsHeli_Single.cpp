@@ -145,7 +145,7 @@ const AP_Param::GroupInfo AP_MotorsHeli_Single::var_info[] = {
 
     // @Param: DDFP_SPIN_MIN
     // @DisplayName: DDFP Tail Rotor Motor Spin minimum
-    // @Description: Point at which the thrust starts expressed as a number from 0 to 1 in the entire output range.  Should be higher than MOT_SPIN_ARM.
+    // @Description: Point at which the thrust starts expressed as a number from 0 to 1 in the entire output range.
     // @Values: 0.0:Low, 0.15:Default, 0.3:High
     // @User: Standard
 
@@ -176,6 +176,13 @@ const AP_Param::GroupInfo AP_MotorsHeli_Single::var_info[] = {
     // @User: Standard
     AP_SUBGROUPINFO(thr_lin, "DDFP_", 22, AP_MotorsHeli_Single, Thrust_Linearization),
 
+    // @Param: YAW_TRIM
+    // @DisplayName: Tail Rotor Trim
+    // @Description: Fixed offset applied to yaw output to minimize yaw I-term contribution needed to counter rotor drag. Currently only works of DDFP tails (H_TAIL_TYPE = 3 or H_TAIL_TYPE = 4). If using the H_COL2YAW compensation this trim is used to compensate for the main rotor profile drag. If H_COL2YAW is not used, this value can be set to reduce the yaw I contribution to zero when in a steady hover.
+    // @Range: 0 1
+    // @User: Standard
+    AP_GROUPINFO("YAW_TRIM", 23,  AP_MotorsHeli_Single, _yaw_trim, 0.0f),
+
     AP_GROUPEND
 };
 
@@ -188,14 +195,8 @@ void AP_MotorsHeli_Single::set_update_rate( uint16_t speed_hz )
     _speed_hz = speed_hz;
 
     // setup fast channels
-    uint32_t mask = 
-        1U << AP_MOTORS_MOT_1 |
-        1U << AP_MOTORS_MOT_2 |
-        1U << AP_MOTORS_MOT_3 |
-        1U << AP_MOTORS_MOT_4;
-    if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
-        mask |= 1U << (AP_MOTORS_MOT_5);
-    }
+    uint32_t mask = (1U << AP_MOTORS_MOT_4) | _swashplate.get_output_mask();
+
     rc_set_freq(mask, _speed_hz);
 }
 
@@ -203,14 +204,6 @@ void AP_MotorsHeli_Single::set_update_rate( uint16_t speed_hz )
 void AP_MotorsHeli_Single::init_outputs()
 {
     if (!initialised_ok()) {
-        // map primary swash servos
-        for (uint8_t i=0; i<AP_MOTORS_HELI_SINGLE_NUM_SWASHPLATE_SERVOS; i++) {
-            add_motor_num(CH_1+i);
-        }
-        if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
-            add_motor_num(CH_5);
-        }
-
         // yaw servo
         add_motor_num(CH_4);
 
@@ -230,15 +223,10 @@ void AP_MotorsHeli_Single::init_outputs()
         SRV_Channels::set_output_min_max(SRV_Channels::get_motor_function(AP_MOTORS_HELI_SINGLE_EXTGYRO), 1000, 2000);
     }
 
-    // reset swash servo range and endpoints
-    for (uint8_t i=0; i<AP_MOTORS_HELI_SINGLE_NUM_SWASHPLATE_SERVOS; i++) {
-        reset_swash_servo(SRV_Channels::get_motor_function(i));
-    }
-    if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
-        reset_swash_servo(SRV_Channels::get_motor_function(4));
-    }
-
-    if (_tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_VARPITCH && _tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_VARPIT_EXT_GOV) {
+    if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
+        // DDFP tails use range as it is easier to ignore servo trim in making for simple implementation of thrust linearisation.
+        SRV_Channels::set_range(SRV_Channel::k_motor4, 1.0f);
+    } else if (_tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_VARPITCH && _tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_VARPIT_EXT_GOV) {
         // yaw servo is an angle from -4500 to 4500
         SRV_Channels::set_angle(SRV_Channel::k_motor4, YAW_SERVO_MAX_ANGLE);
     }
@@ -265,7 +253,6 @@ void AP_MotorsHeli_Single::calculate_armed_scalars()
     // keeps user from changing RSC mode while armed
     if (_main_rotor._rsc_mode.get() != _main_rotor.get_control_mode()) {
         _main_rotor.reset_rsc_mode_param();
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "RSC control mode change failed");
         _heliflags.save_rsc_mode = true;
     }
     // saves rsc mode parameter when disarmed if it had been reset while armed
@@ -273,9 +260,9 @@ void AP_MotorsHeli_Single::calculate_armed_scalars()
         _main_rotor._rsc_mode.save();
         _heliflags.save_rsc_mode = false;
     }
-	
+
     // allow use of external governor autorotation bailout
-    if (_heliflags.in_autorotation) {        
+    if (_heliflags.in_autorotation) {
         _main_rotor.set_autorotation_flag(_heliflags.in_autorotation);
         // set bailout ramp time
         _main_rotor.use_bailout_ramp_time(_heliflags.enable_bailout);
@@ -283,7 +270,7 @@ void AP_MotorsHeli_Single::calculate_armed_scalars()
             _tail_rotor.set_autorotation_flag(_heliflags.in_autorotation);
             _tail_rotor.use_bailout_ramp_time(_heliflags.enable_bailout);
         }
-    }else { 
+    } else {
         _main_rotor.set_autorotation_flag(false);
         if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_VARPITCH || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_VARPIT_EXT_GOV) {
             _tail_rotor.set_autorotation_flag(false);
@@ -317,7 +304,6 @@ void AP_MotorsHeli_Single::calculate_scalars()
 
     // configure swashplate and update scalars
     _swashplate.configure();
-    _swashplate.calculate_roll_pitch_collective_factors();
 
     // send setpoints to main rotor controller and trigger recalculation of scalars
     _main_rotor.set_control_mode(static_cast<RotorControlMode>(_main_rotor._rsc_mode.get()));
@@ -447,6 +433,11 @@ void AP_MotorsHeli_Single::move_actuators(float roll_out, float pitch_out, float
             // This feedforward compensation follows the hover performance theory that hover power required
             // is a function of gross weight to the 3/2 power
             yaw_offset = _collective_yaw_scale * powf(fabsf(collective_out - _collective_zero_thrust_pct),1.5f);
+
+            // Add yaw trim for DDFP tails
+            if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
+                yaw_offset += _yaw_trim.get();
+            }
         }
     } else {
         yaw_offset = 0.0f;
@@ -461,13 +452,8 @@ void AP_MotorsHeli_Single::move_actuators(float roll_out, float pitch_out, float
     float collective_scalar = ((float)(_collective_max-_collective_min))*0.001f;
     float collective_out_scaled = collective_out * collective_scalar + (_collective_min - 1000)*0.001f;
 
-    // get servo positions from swashplate library
-    _servo1_out = _swashplate.get_servo_out(CH_1,pitch_out,roll_out,collective_out_scaled);
-    _servo2_out = _swashplate.get_servo_out(CH_2,pitch_out,roll_out,collective_out_scaled);
-    _servo3_out = _swashplate.get_servo_out(CH_3,pitch_out,roll_out,collective_out_scaled);
-    if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
-        _servo5_out = _swashplate.get_servo_out(CH_4,pitch_out,roll_out,collective_out_scaled);
-    }
+    // Caculate servo positions from swashplate library
+    _swashplate.calculate(roll_out, pitch_out, collective_out_scaled);
 
     // update the yaw rate using the tail rotor/servo
     move_yaw(yaw_out + yaw_offset);
@@ -495,15 +481,10 @@ void AP_MotorsHeli_Single::output_to_motors()
         return;
     }
 
-    // actually move the servos.  PWM is sent based on nominal 1500 center.  servo output shifts center based on trim value.
-    rc_write_swash(AP_MOTORS_MOT_1, _servo1_out);
-    rc_write_swash(AP_MOTORS_MOT_2, _servo2_out);
-    rc_write_swash(AP_MOTORS_MOT_3, _servo3_out);
-    // get servo positions from swashplate library and write to servo for 4 servo of 4 servo swashplate
-    if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_90 || _swashplate.get_swash_type() == SWASHPLATE_TYPE_H4_45) {
-        rc_write_swash(AP_MOTORS_MOT_5, _servo5_out);
-    }
-    if (_tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW && _tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
+    // Write swashplate outputs
+    _swashplate.output();
+
+    if (_tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW && _tail_type != AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
         rc_write_angle(AP_MOTORS_MOT_4, _servo4_out * YAW_SERVO_MAX_ANGLE);
     }
     if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_SERVO_EXTGYRO) {
@@ -519,71 +500,66 @@ void AP_MotorsHeli_Single::output_to_motors()
         _servo4_out = -_servo4_out;
     }
 
-    if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
+    if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
         // calc filtered battery voltage and lift_max
         thr_lin.update_lift_max_from_batt_voltage();
     }
 
+    // Warning: This spool state logic is what prevents DDFP tails from actuating when doing H_SV_MAN and H_SV_TEST tests
     switch (_spool_state) {
         case SpoolState::SHUT_DOWN:
             // sends minimum values out to the motors
             update_motor_control(ROTOR_CONTROL_STOP);
-            if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
-                rc_write(AP_MOTORS_MOT_4, calculate_ddfp_output(0.0f));
+            if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
+                // Set DDFP to servo min
+                output_to_ddfp_tail(0.0);
             }
             break;
         case SpoolState::GROUND_IDLE:
             // sends idle output to motors when armed. rotor could be static or turning (autorotation)
             update_motor_control(ROTOR_CONTROL_IDLE);
-            if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
-                rc_write(AP_MOTORS_MOT_4, calculate_ddfp_output(0.0f));
+            if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
+                // Set DDFP to servo min
+                output_to_ddfp_tail(0.0);
             }
             break;
         case SpoolState::SPOOLING_UP:
         case SpoolState::THROTTLE_UNLIMITED:
             // set motor output based on thrust requests
             update_motor_control(ROTOR_CONTROL_ACTIVE);
-            if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
-                SRV_Channel *c = SRV_Channels::srv_channel(AP_MOTORS_MOT_4);
-                if (c != nullptr) {
-                    _ddfp_pwm_min = c->get_output_min();
-                    _ddfp_pwm_max = c->get_output_max();
-                    _ddfp_pwm_trim = c->get_trim();
-                }
-                float servo_out = 0.0f;
-                if (is_positive((float) (_ddfp_pwm_max - _ddfp_pwm_min))) {
-                    float servo4_trim = constrain_float((_ddfp_pwm_trim - 1000) / (_ddfp_pwm_max - _ddfp_pwm_min), 0.0f, 1.0f);
-                    if (is_positive(_servo4_out)) {
-                        servo_out = (1.0f - servo4_trim) * _servo4_out + servo4_trim;
-                    } else {
-                        servo_out = servo4_trim * _servo4_out + servo4_trim;
-                    }
-                } else {
-                    // if servo pwm min and max are bad, convert servo4_out from -1 to 1 to 0 to 1
-                    servo_out = 0.5f * (_servo4_out + 1.0f);
-                    // this should never happen
-                    INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
-                }
-                // output yaw servo to tail rsc
-                rc_write(AP_MOTORS_MOT_4, calculate_ddfp_output(thr_lin.thrust_to_actuator(constrain_float(servo_out, 0.0f, 1.0f))));
+            if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) {
+                // Operate DDFP to between DDFP_SPIN_MIN and DDFP_SPIN_MAX using thrust linearisation
+                output_to_ddfp_tail(thr_lin.thrust_to_actuator(_servo4_out));
             }
             break;
         case SpoolState::SPOOLING_DOWN:
             // sends idle output to motors and wait for rotor to stop
             update_motor_control(ROTOR_CONTROL_IDLE);
             if (_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW || _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW){
-                rc_write(AP_MOTORS_MOT_4, calculate_ddfp_output(0.0f));
+                // Set DDFP to servo min
+                output_to_ddfp_tail(0.0);
             }
             break;
-
     }
 }
 
-// calculate the motor output for DDFP tails from yaw_out
-uint16_t AP_MotorsHeli_Single::calculate_ddfp_output(float yaw_out)
+// handle output limit flags and send throttle to servos lib
+void AP_MotorsHeli_Single::output_to_ddfp_tail(float throttle)
 {
-    uint16_t ret = _ddfp_pwm_min + (_ddfp_pwm_max - _ddfp_pwm_min) * yaw_out;
-    return ret;
+    // Note: yaw trim thrust has already been applied. the output should only be from 0 to 1.
+    // Upper limit
+    if (throttle >= 1.0){
+        throttle = 1.0;
+        limit.yaw = true;
+    }
+
+    // Lower limit
+    if (throttle <= 0.0){
+        throttle = 0.0;
+        limit.yaw = true;
+    }
+
+    SRV_Channels::set_output_scaled(SRV_Channel::k_motor4, throttle);
 }
 
 // servo_test - move servos through full range of movement
@@ -635,41 +611,65 @@ void AP_MotorsHeli_Single::servo_test()
     _yaw_in = constrain_float(_yaw_test, -1.0f, 1.0f);
 }
 
-// parameter_check - check if helicopter specific parameters are sensible
-bool AP_MotorsHeli_Single::parameter_check(bool display_msg) const
+// Run arming checks
+bool AP_MotorsHeli_Single::arming_checks(size_t buflen, char *buffer) const
 {
+    // run base class checks
+    if (!AP_MotorsHeli::arming_checks(buflen, buffer)) {
+        return false;
+    }
+
     // returns false if direct drive tailspeed is outside of range
-    if ((_direct_drive_tailspeed < 0) || (_direct_drive_tailspeed > 100)){
-        if (display_msg) {
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "PreArm: H_TAIL_SPEED out of range");
-        }
+    if ((_direct_drive_tailspeed < 0) || (_direct_drive_tailspeed > 100)) {
+        hal.util->snprintf(buffer, buflen, "H_TAIL_SPEED out of range");
         return false;
     }
 
     // returns false if Phase Angle is outside of range for H3 swashplate
     if (_swashplate.get_swash_type() == SWASHPLATE_TYPE_H3 && (_swashplate.get_phase_angle() > 30 || _swashplate.get_phase_angle() < -30)){
-        if (display_msg) {
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "PreArm: H_H3_PHANG out of range");
-        }
+        hal.util->snprintf(buffer, buflen, "H_SW_H3_PHANG out of range");
         return false;
     }
 
     // returns false if Acro External Gyro Gain is outside of range
-    if ((_ext_gyro_gain_acro < 0) || (_ext_gyro_gain_acro > 1000)){
-        if (display_msg) {
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "PreArm: H_GYR_GAIN_ACRO out of range");
-        }
+    if ((_ext_gyro_gain_acro < 0) || (_ext_gyro_gain_acro > 1000)) {
+        hal.util->snprintf(buffer, buflen, "H_GYR_GAIN_ACRO out of range");
         return false;
     }
 
     // returns false if Standard External Gyro Gain is outside of range
-    if ((_ext_gyro_gain_std < 0) || (_ext_gyro_gain_std > 1000)){
-        if (display_msg) {
-            gcs().send_text(MAV_SEVERITY_CRITICAL, "PreArm: H_GYR_GAIN out of range");
-        }
+    if ((_ext_gyro_gain_std < 0) || (_ext_gyro_gain_std > 1000)) {
+        hal.util->snprintf(buffer, buflen, "H_GYR_GAIN out of range");
         return false;
     }
 
-    // check parent class parameters
-    return AP_MotorsHeli::parameter_check(display_msg);
+    return true;
+}
+
+// Helper function for param conversions which are easier to be done in the motors class
+// Called from system.cpp
+void AP_MotorsHeli_Single::heli_motors_param_conversions(void)
+{
+    // PARAMETER_CONVERSION - Added: Nov-2023
+    // Convert trim for DDFP tails
+    // Previous DDFP configs used servo trim for setting the yaw trim, which no longer works with thrust linearisation. Convert servo trim
+    // to H_YAW_TRIM. Default thrust linearisation gives linear thrust to throttle relationship to preserve previous setup behaviours so
+    // we can assume linear relationship in the conversion.
+    if ((_tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CW ||
+        _tail_type == AP_MOTORS_HELI_SINGLE_TAILTYPE_DIRECTDRIVE_FIXEDPITCH_CCW) &&
+        !_yaw_trim.configured()) {
+
+        SRV_Channel *c = SRV_Channels::get_channel_for(SRV_Channel::k_motor4);
+        if (c != nullptr) {
+            uint16_t pwm_min = c->get_output_min();
+            uint16_t pwm_max = c->get_output_max();
+            uint16_t pwm_trim = c->get_trim();
+
+            float trim = (float)(pwm_trim - pwm_min) / constrain_uint16(pwm_max - pwm_min, 1, 2000);
+            _yaw_trim.set(trim);
+        }
+        // Motor 4 may not have been assigned to an output yet in which case this is unlikely to be a conversion from old setup.
+        // Prevent future attempts to convert the param so we don't put a non-sense value in.
+        _yaw_trim.save();
+    }
 }

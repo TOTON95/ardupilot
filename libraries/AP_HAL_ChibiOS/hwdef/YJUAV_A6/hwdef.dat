@@ -51,9 +51,6 @@ PE1 UART8_TX UART8
 PE7 UART7_RX UART7 NODMA
 PE8 UART7_TX UART7 NODMA
 
-# default the 2nd interface to MAVLink2 until MissionPlanner updates drivers
-define HAL_OTG2_PROTOCOL SerialProtocol_MAVLink2
-
 # these are the pins for SWD debugging with a STlinkv2 or black-magic probe
 PA13 JTMS-SWDIO SWD
 PA14 JTCK-SWCLK SWD
@@ -216,10 +213,6 @@ PD2 SDMMC1_CMD SDMMC1
 
 # enable FAT filesystem support (needs a microSD defined via SDMMC)
 define HAL_OS_FATFS_IO 1
-
-define HAL_BOARD_LOG_DIRECTORY "/APM/LOGS"
-define HAL_BOARD_TERRAIN_DIRECTORY "/APM/TERRAIN"
-
 
 # enable RAMTROM parameter storage
 define HAL_STORAGE_SIZE 32768

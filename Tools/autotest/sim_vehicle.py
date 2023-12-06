@@ -378,8 +378,8 @@ def do_build(opts, frame_options):
     if opts.math_check_indexes:
         cmd_configure.append("--enable-math-check-indexes")
 
-    if opts.disable_ekf2:
-        cmd_configure.append("--disable-ekf2")
+    if opts.enable_ekf2:
+        cmd_configure.append("--enable-ekf2")
 
     if opts.disable_ekf3:
         cmd_configure.append("--disable-ekf3")
@@ -410,6 +410,12 @@ def do_build(opts, frame_options):
 
     if opts.enable_dds:
         cmd_configure.append("--enable-dds")
+
+    if opts.disable_networking:
+        cmd_configure.append("--disable-networking")
+
+    if opts.enable_networking_tests:
+        cmd_configure.append("--enable-networking-tests")
 
     pieces = [shlex.split(x) for x in opts.waf_configure_args]
     for piece in pieces:
@@ -660,13 +666,24 @@ def start_antenna_tracker(opts):
     os.chdir(oldpwd)
 
 
-def start_CAN_GPS(opts):
-    """Compile and run the sitl_periph_gps"""
+def start_CAN_Periph(opts, frame_info):
+    """Compile and run the sitl_periph"""
 
     global can_uarta
     progress("Preparing sitl_periph_gps")
     options = vinfo.options["sitl_periph_gps"]['frames']['gps']
-    do_build(opts, options)
+    defaults_path = frame_info.get('periph_params_filename', None)
+    if defaults_path is None:
+        defaults_path = options.get('default_params_filename', None)
+
+    if not isinstance(defaults_path, list):
+        defaults_path = [defaults_path]
+
+    # add in path and make a comma separated list
+    defaults_path = ','.join([util.relcurdir(os.path.join(autotest_dir, p)) for p in defaults_path])
+
+    if not cmd_opts.no_rebuild:
+        do_build(opts, options)
     exe = os.path.join(root_dir, 'build/sitl_periph_gps', 'bin/AP_Periph')
     cmd = ["nice"]
     cmd_name = "sitl_periph_gps"
@@ -689,6 +706,9 @@ def start_CAN_GPS(opts):
         cmd.extend(["-x", gdb_commands_file.name])
         cmd.append("--args")
     cmd.append(exe)
+    if defaults_path is not None:
+        cmd.append("--defaults")
+        cmd.append(defaults_path)
     run_in_terminal_window(cmd_name, cmd)
 
 
@@ -769,7 +789,7 @@ def start_vehicle(binary, opts, stuff, spawns=None):
                 print("The parameter file (%s) does not exist" % (x,))
                 sys.exit(1)
         path = ",".join(paths)
-        if cmd_opts.count > 1:
+        if cmd_opts.count > 1 or opts.auto_sysid:
             # we are in a subdirectory when using -n
             path = os.path.join("..", path)
         progress("Using defaults from (%s)" % (path,))
@@ -1131,10 +1151,10 @@ group_sim.add_option("-T", "--tracker",
 group_sim.add_option("", "--enable-onvif",
                      action="store_true",
                      help="enable onvif camera control sim using AntennaTracker")
-group_sim.add_option("", "--can-gps",
+group_sim.add_option("", "--can-peripherals",
                      action='store_true',
                      default=False,
-                     help="start a DroneCAN GPS instance (use Tools/scripts/CAN/can_sitl_nodev.sh first)")
+                     help="start a DroneCAN peripheral instance")
 group_sim.add_option("-A", "--sitl-instance-args",
                      type='string',
                      default=None,
@@ -1275,7 +1295,7 @@ group_sim.add_option("--flash-storage",
 group_sim.add_option("--fram-storage",
                      action='store_true',
                      help="use fram storage emulation")
-group_sim.add_option("--disable-ekf2",
+group_sim.add_option("--enable-ekf2",
                      action='store_true',
                      help="disable EKF2 in build")
 group_sim.add_option("--disable-ekf3",
@@ -1312,6 +1332,10 @@ group_sim.add_option("", "--sim-address",
                      help="IP address of the simulator. Defaults to localhost")
 group_sim.add_option("--enable-dds", action='store_true',
                      help="Enable the dds client to connect with ROS2/DDS")
+group_sim.add_option("--disable-networking", action='store_true',
+                     help="Disable networking APIs")
+group_sim.add_option("--enable-networking-tests", action='store_true',
+                     help="Enable networking tests")
 
 parser.add_option_group(group_sim)
 
@@ -1472,8 +1496,8 @@ if cmd_opts.instance == 0:
 if cmd_opts.tracker:
     start_antenna_tracker(cmd_opts)
 
-if cmd_opts.can_gps:
-    start_CAN_GPS(cmd_opts)
+if cmd_opts.can_peripherals or frame_infos.get('periph_params_filename', None) is not None:
+    start_CAN_Periph(cmd_opts, frame_infos)
 
 if cmd_opts.custom_location:
     location = [(float)(x) for x in cmd_opts.custom_location.split(",")]
@@ -1603,7 +1627,7 @@ if cmd_opts.frame in ['scrimmage-plane', 'scrimmage-copter']:
                     entities[i][k] = v
     config['entities'] = list(entities.values())
     env = Environment(loader=FileSystemLoader(os.path.join(autotest_dir, 'template')))
-    mission = env.get_template('scrimmage.xml').render(**config)
+    mission = env.get_template('scrimmage.xml.j2').render(**config)
     tmp = mkstemp()
     atexit.register(os.remove, tmp[1])
 

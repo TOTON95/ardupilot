@@ -17,11 +17,6 @@
 #define AP_MOTORS_HELI_DUAL_MODE_TRANSVERSE            1 // transverse mode (rotors side by side)
 #define AP_MOTORS_HELI_DUAL_MODE_INTERMESHING          2 // intermeshing mode (rotors side by side)
 
-// tandem modes
-#define AP_MOTORS_HELI_DUAL_SWASH_AXIS_PITCH           0 // swashplate pitch tilt axis
-#define AP_MOTORS_HELI_DUAL_SWASH_AXIS_ROLL            1 // swashplate roll tilt axis
-#define AP_MOTORS_HELI_DUAL_SWASH_AXIS_COLL            2 // swashplate collective axis
-
 // default differential-collective-pitch scaler
 #define AP_MOTORS_HELI_DUAL_DCP_SCALER             0.25f
 
@@ -55,17 +50,11 @@ public:
     // calculate_armed_scalars - recalculates scalars that can change while armed
     void calculate_armed_scalars() override;
 
-    // has_flybar - returns true if we have a mechical flybar
-    bool has_flybar() const  override { return AP_MOTORS_HELI_NOFLYBAR; }
-
-    // supports_yaw_passthrought - returns true if we support yaw passthrough
-    bool supports_yaw_passthrough() const  override { return false; }
-
     // servo_test - move servos through full range of movement
     void servo_test() override;
 
-    // parameter_check - returns true if helicopter specific parameters are sensible, used for pre-arm check
-    bool parameter_check(bool display_msg) const override;
+    // Run arming checks
+    bool arming_checks(size_t buflen, char *buffer) const override;
 
     // var_info for holding Parameter information
     static const struct AP_Param::GroupInfo var_info[];
@@ -87,8 +76,8 @@ protected:
     const char* _get_frame_string() const override { return "HELI_DUAL"; }
 
     //  objects we depend upon
-    AP_MotorsHeli_Swash        _swashplate1;        // swashplate1
-    AP_MotorsHeli_Swash        _swashplate2;        // swashplate2
+    AP_MotorsHeli_Swash _swashplate1 { CH_1, CH_2, CH_3, CH_7 }; // swashplate1
+    AP_MotorsHeli_Swash _swashplate2 { CH_4, CH_5, CH_6, CH_8 }; // swashplate2
 
     // internal variables
     float _oscillate_angle = 0.0f;                  // cyclic oscillation angle, used by servo_test function
@@ -110,4 +99,16 @@ protected:
 
     // internal variables
     float _collective2_zero_thrst_pct;
+
+private:
+
+    // Mix and output swashplates for tandem
+    void mix_tandem(float pitch_input, float roll_input, float yaw_input, float collective1_input, float collective2_input);
+
+    // Mix and output swashplates for transverse
+    void mix_transverse(float pitch_input, float roll_input, float yaw_input, float collective1_input, float collective2_input);
+
+    // Mix and output swashplates for intermeshing
+    void mix_intermeshing(float pitch_input, float roll_input, float yaw_input, float collective1_input, float collective2_input);
+
 };

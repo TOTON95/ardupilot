@@ -17,7 +17,6 @@
 /// @brief	Object managing one RC channel
 class RC_Channel {
 public:
-    friend class SRV_Channels;
     friend class RC_Channels;
     // Constructor
     RC_Channel(void);
@@ -214,7 +213,7 @@ public:
         DISABLE_AIRSPEED_USE = 106, // equivalent to AIRSPEED_USE 0
         FW_AUTOTUNE =          107, // fixed wing auto tune
         QRTL =               108, // QRTL mode
-        CUSTOM_CONTROLLER =  109,
+        CUSTOM_CONTROLLER =  109,  // use Custom Controller
         KILL_IMU3 =          110, // disable third IMU (for IMU failure testing)
         LOWEHEISER_STARTER = 111,  // allows for manually running starter
 
@@ -247,6 +246,8 @@ public:
         BATTERY_MPPT_ENABLE = 172,// Battery MPPT Power enable. high = ON, mid = auto (controlled by mppt/batt driver), low = OFF. This effects all MPPTs.
         PLANE_AUTO_LANDING_ABORT = 173, // Abort Glide-slope or VTOL landing during payload place or do_land type mission items
         CAMERA_IMAGE_TRACKING = 174, // camera image tracking
+        CAMERA_LENS =        175, // camera lens selection
+        VFWD_THR_OVERRIDE =  176, // force enabled VTOL forward throttle method
 
 
         // inputs from 200 will eventually used to replace RCMAP
@@ -346,6 +347,7 @@ protected:
     bool do_aux_function_camera_manual_focus(const AuxSwitchPos ch_flag);
     bool do_aux_function_camera_auto_focus(const AuxSwitchPos ch_flag);
     bool do_aux_function_camera_image_tracking(const AuxSwitchPos ch_flag);
+    bool do_aux_function_camera_lens(const AuxSwitchPos ch_flag);
     void do_aux_function_runcam_control(const AuxSwitchPos ch_flag);
     void do_aux_function_runcam_osd_control(const AuxSwitchPos ch_flag);
     void do_aux_function_fence(const AuxSwitchPos ch_flag);
@@ -477,7 +479,7 @@ public:
 
     // returns a mask indicating which channels have overrides.  Bit 0
     // is RC channel 1.  Beware this is not a cheap call.
-    static uint16_t get_override_mask();
+    uint16_t get_override_mask() const;
 
     class RC_Channel *find_channel_for_option(const RC_Channel::aux_func_t option);
     bool duplicate_options_exist();

@@ -304,6 +304,13 @@ void __entry_hook()
 }
 #endif
 
+uint32_t chibios_rand_generate()
+{
+    uint32_t val;
+    hal.util->get_random_vals((uint8_t*)&val, sizeof(val));
+    return val;
+}
+
 }
 namespace AP_HAL {
 
@@ -379,32 +386,6 @@ __FASTRAMFUNC__ uint64_t micros64()
 __FASTRAMFUNC__ uint64_t millis64()
 {
     return hrt_micros64() / 1000U;
-}
-
-
-__FASTRAMFUNC__ uint32_t native_micros()
-{
-    return micros();
-}
-
-__FASTRAMFUNC__ uint32_t native_millis()
-{
-    return millis();
-}
-
-__FASTRAMFUNC__ uint16_t native_millis16()
-{
-    return millis16();
-}
-
-__FASTRAMFUNC__ uint64_t native_micros64()
-{
-    return micros64();
-}
-
-__FASTRAMFUNC__ uint64_t native_millis64()
-{
-    return millis64();
 }
 
 

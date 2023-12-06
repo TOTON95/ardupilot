@@ -207,6 +207,14 @@ bool Rover::set_steering_and_throttle(float steering, float throttle)
     return true;
 }
 
+// get steering and throttle (-1 to +1) (for use by scripting)
+bool Rover::get_steering_and_throttle(float& steering, float& throttle)
+{
+    steering = g2.motors.get_steering() / 4500.0;
+    throttle = g2.motors.get_throttle() * 0.01;
+    return true;
+}
+
 // set desired turn rate (degrees/sec) and speed (m/s). Used for scripting
 bool Rover::set_desired_turn_rate_and_speed(float turn_rate, float speed)
 {
@@ -421,6 +429,11 @@ void Rover::update_logging2(void)
         gyro_fft.write_log_messages();
 #endif
     }
+#if HAL_MOUNT_ENABLED
+    if (should_log(MASK_LOG_CAMERA)) {
+        camera_mount.write_log();
+    }
+#endif
 }
 
 
@@ -455,6 +468,7 @@ void Rover::one_second_loop(void)
     // send latest param values to wp_nav
     g2.wp_nav.set_turn_params(g2.turn_radius, g2.motors.have_skid_steering());
     g2.pos_control.set_turn_params(g2.turn_radius, g2.motors.have_skid_steering());
+    g2.wheel_rate_control.set_notch_sample_rate(AP::scheduler().get_filtered_loop_rate_hz());
 }
 
 void Rover::update_current_mode(void)

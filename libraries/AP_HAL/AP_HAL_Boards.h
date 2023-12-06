@@ -1,5 +1,5 @@
 /**
- * C preprocesor enumeration of the boards supported by the AP_HAL.
+ * C preprocessor enumeration of the boards supported by the AP_HAL.
  * This list exists so HAL_BOARD == HAL_BOARD_xxx preprocessor blocks
  * can be used to exclude HAL boards from the build when appropriate.
  * It's not an elegant solution but we can improve it in future.
@@ -42,6 +42,7 @@
 #define HAL_BOARD_SUBTYPE_LINUX_NAVIGATOR  1023
 #define HAL_BOARD_SUBTYPE_LINUX_VNAV       1024
 #define HAL_BOARD_SUBTYPE_LINUX_OBAL_V1    1025
+#define HAL_BOARD_SUBTYPE_LINUX_CANZERO    1026
 
 /* HAL CHIBIOS sub-types, starting at 5000
 
@@ -169,6 +170,10 @@
 #define HAL_WITH_IO_MCU 0
 #endif
 
+#ifndef HAL_WITH_IO_MCU_DSHOT
+#define HAL_WITH_IO_MCU_DSHOT 0
+#endif
+
 // this is used as a general mechanism to make a 'small' build by
 // dropping little used features. We use this to allow us to keep
 // FMUv2 going for as long as possible
@@ -223,10 +228,6 @@
 
 #ifndef AP_TEST_DRONECAN_DRIVERS
 #define AP_TEST_DRONECAN_DRIVERS 0
-#endif
-
-#ifndef AP_AIRSPEED_BACKEND_DEFAULT_ENABLED
-#define AP_AIRSPEED_BACKEND_DEFAULT_ENABLED 1
 #endif
 
 #ifdef HAVE_LIBDL
@@ -287,6 +288,26 @@
 #define HAL_DSHOT_ALARM_ENABLED 0
 #endif
 
+#ifndef HAL_DSHOT_ENABLED
+#define HAL_DSHOT_ENABLED 1
+#endif
+
+#ifndef HAL_SERIALLED_ENABLED
+#define HAL_SERIALLED_ENABLED HAL_DSHOT_ENABLED
+#endif
+
+#ifndef HAL_SERIAL_ESC_COMM_ENABLED
+#ifdef DISABLE_SERIAL_ESC_COMM
+#define HAL_SERIAL_ESC_COMM_ENABLED 0
+#else
+#define HAL_SERIAL_ESC_COMM_ENABLED 1
+#endif
+#endif
+
+#ifndef AP_BOOTLOADER_FLASHING_ENABLED
+#define AP_BOOTLOADER_FLASHING_ENABLED 0
+#endif
+
 #ifndef HAL_HNF_MAX_FILTERS
 // On an F7 The difference in CPU load between 1 notch and 24 notches is about 2%
 // The difference in CPU load between 1Khz backend and 2Khz backend is about 10%
@@ -302,7 +323,8 @@
 #else
 // Enough for a notch per motor on an octa quad using two IMUs and one harmonic
 // plus one static notch with one harmonic
-#define HAL_HNF_MAX_FILTERS 18
+// Or triple-notch per motor on one IMU with one harmonic
+#define HAL_HNF_MAX_FILTERS 24
 #endif
 #endif // HAL_HNF_MAX_FILTERS
 
@@ -315,6 +337,7 @@
 #ifndef HAL_USE_QUADSPI
 #define HAL_USE_QUADSPI 0
 #endif
+
 #ifndef HAL_USE_OCTOSPI
 #define HAL_USE_OCTOSPI 0
 #endif
@@ -335,13 +358,6 @@
 #define HAL_ENABLE_DFU_BOOT 0
 #endif
 
-
-// sanity checks for the configuration.  This can't test everything as
-// the libraries can do their own definitions - but we can catch some
-// things:
-#if HAL_MINIMIZE_FEATURES && BOARD_FLASH_SIZE > 1024
-#error "2MB board with minimize features?!"
-#endif
 
 #ifndef HAL_ENABLE_SENDING_STATS
 #define HAL_ENABLE_SENDING_STATS BOARD_FLASH_SIZE >= 256

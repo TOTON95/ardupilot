@@ -54,7 +54,7 @@ bool UARTDriver::_console;
 
 /* UARTDriver method implementations */
 
-void UARTDriver::begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
+void UARTDriver::_begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
 {
     if (_portNumber >= ARRAY_SIZE(_sitlState->_uart_path)) {
         AP_HAL::panic("port number out of range; you may need to extend _sitlState->_uart_path");
@@ -120,17 +120,6 @@ void UARTDriver::begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
             _uart_path = strdup(args1);
             _uart_baudrate = baudrate;
             _uart_start_connection();
-        } else if (strcmp(devtype, "fifo") == 0) {
-            if(strcmp(args1, "gps") == 0) {
-                UNUSED_RESULT(asprintf(&args1, "/tmp/gps_fifo%d", (int)_sitlState->get_instance()));
-            }
-            ::printf("Reading FIFO file @ %s\n", args1);
-            _fd = ::open(args1, O_RDONLY | O_NONBLOCK);
-            if (_fd >= 0) {
-                _connected = true;
-            } else {
-                ::printf("Failed Reading FIFO file @ %s\n", args1);       
-            }
         } else if (strcmp(devtype, "sim") == 0) {
             if (!_connected) {
                 ::printf("SIM connection %s:%s on port %u\n", args1, args2, _portNumber);
@@ -195,11 +184,11 @@ void UARTDriver::begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
     _set_nonblocking(_fd);
 }
 
-void UARTDriver::end()
+void UARTDriver::_end()
 {
 }
 
-uint32_t UARTDriver::available(void)
+uint32_t UARTDriver::_available(void)
 {
     _check_connection();
 
@@ -219,26 +208,18 @@ uint32_t UARTDriver::txspace(void)
     return _writebuffer.space();
 }
 
-bool UARTDriver::read(uint8_t &c)
-{
-    if (read(&c, 1) == 0) {
-        return false;
-    }
-    return true;
-}
-
-ssize_t UARTDriver::read(uint8_t *buffer, uint16_t count)
+ssize_t UARTDriver::_read(uint8_t *buffer, uint16_t count)
 {
     return _readbuffer.read(buffer, count);
 }
 
-bool UARTDriver::discard_input(void)
+bool UARTDriver::_discard_input(void)
 {
     _readbuffer.clear();
     return true;
 }
 
-void UARTDriver::flush(void)
+void UARTDriver::_flush(void)
 {
     // flush the write buffer - but don't fail and don't
     // infinitely-loop.  This is not a good definition of "flush", but
@@ -262,56 +243,36 @@ void UARTDriver::flush(void)
     }
 }
 
-// size_t UARTDriver::write(uint8_t c)
-// {
-//     if (txspace() <= 0) {
-//         return 0;
-//     }
-//     _writebuffer.write(&c, 1);
-//     return 1;
-// }
-
-size_t UARTDriver::write(uint8_t c)
+size_t UARTDriver::_write(const uint8_t *buffer, size_t size)
 {
-    return write(&c, 1);
-}
-size_t UARTDriver::write(const uint8_t *buffer, size_t size)
-{
-    if (txspace() <= size) {
-        size = txspace();
+    const auto _txspace = txspace();
+    if (_txspace < size) {
+        size = _txspace;
     }
     if (size <= 0) {
         return 0;
     }
-    if (_unbuffered_writes) {
-        const ssize_t nwritten = ::write(_fd, buffer, size);
-        if (nwritten == -1 && errno != EAGAIN && _uart_path) {
-            close(_fd);
-            _fd = -1;
-            _connected = false;
-        }
-        // these have no effect
-        tcdrain(_fd);
-    } else {
+
         /*
           simulate byte loss at the link layer
          */
-        size_t nwrite = size;
+        uint8_t lost_byte = 0;
 #if !defined(HAL_BUILD_AP_PERIPH)
         SITL::SIM *_sitl = AP::sitl();
 
         if (_sitl && _sitl->uart_byte_loss_pct > 0) {
             if (fabsf(rand_float()) < _sitl->uart_byte_loss_pct.get() * 0.01 * size) {
-                nwrite--;
-            }
-            if (nwrite == 0) {
-                return size;
+                lost_byte = 1;
             }
         }
 #endif // HAL_BUILD_AP_PERIPH
-        _writebuffer.write(buffer, nwrite);
+
+
+    const size_t ret = _writebuffer.write(buffer, size - lost_byte) + lost_byte;
+    if (_unbuffered_writes) {
+        handle_writing_from_writebuffer_to_device();
     }
-    return size;
+    return ret;
 }
 
     
@@ -742,12 +703,8 @@ uint16_t UARTDriver::read_from_async_csv(uint8_t *buffer, uint16_t space)
         return 0;
     }
 
-    static uint32_t frame_number;
-    frame_number++;
-
     uint8_t i;
     for (i=0; i<space; i++) {
-        static uint32_t count;
         if (logic_async_csv.loaded) {
             const uint32_t emit_timestamp_us = micros - logic_async_csv.first_emit_micros_us;
             const uint32_t data_timestamp_us = logic_async_csv.loaded_data.timestamp_us - logic_async_csv.first_timestamp_us;
@@ -755,7 +712,6 @@ uint16_t UARTDriver::read_from_async_csv(uint8_t *buffer, uint16_t space)
                 return i;
             }
             buffer[i] = logic_async_csv.loaded_data.b;
-            count++;
             logic_async_csv.loaded = false;
         }
 
@@ -823,7 +779,7 @@ uint16_t UARTDriver::read_from_async_csv(uint8_t *buffer, uint16_t space)
     return i;
 }
 
-void UARTDriver::_timer_tick(void)
+void UARTDriver::handle_writing_from_writebuffer_to_device()
 {
     if (!_connected) {
         _check_reconnect();
@@ -836,12 +792,12 @@ void UARTDriver::_timer_tick(void)
     if (_sitl && _sitl->telem_baudlimit_enable) {
         // limit byte rate to configured baudrate
         uint32_t now = AP_HAL::micros();
-        float dt = 1.0e-6 * (now - last_tick_us);
+        float dt = 1.0e-6 * (now - last_write_tick_us);
         max_bytes = _uart_baudrate * dt / 10;
         if (max_bytes == 0) {
             return;
         }
-        last_tick_us = now;
+        last_write_tick_us = now;
     }
 #endif
     if (_packetise) {
@@ -883,13 +839,37 @@ void UARTDriver::_timer_tick(void)
             }
         }
     }
+}
+
+void UARTDriver::handle_reading_from_device_to_readbuffer()
+{
+    if (!_connected) {
+        _check_reconnect();
+        return;
+    }
 
     uint32_t space = _readbuffer.space();
     if (space == 0) {
         return;
     }
+
+    uint32_t max_bytes = 10000;
+#if !defined(HAL_BUILD_AP_PERIPH)
+    SITL::SIM *_sitl = AP::sitl();
+    if (_sitl && _sitl->telem_baudlimit_enable) {
+        // limit byte rate to configured baudrate
+        uint32_t now = AP_HAL::micros();
+        float dt = 1.0e-6 * (now - last_read_tick_us);
+        max_bytes = _uart_baudrate * dt / 10;
+        if (max_bytes == 0) {
+            return;
+        }
+        last_read_tick_us = now;
+    }
+#endif
+
     space = MIN(space, max_bytes);
-    
+
     char buf[space];
     ssize_t nread = 0;
     if (_mc_fd >= 0) {
@@ -956,6 +936,13 @@ void UARTDriver::_timer_tick(void)
     }
 }
 
+void UARTDriver::_timer_tick(void)
+{
+    handle_writing_from_writebuffer_to_device();
+    handle_reading_from_device_to_readbuffer();
+}
+
+
 /*
   return timestamp estimate in microseconds for when the start of
   a nbytes packet arrived on the uart. This should be treated as a
@@ -1000,5 +987,11 @@ ssize_t UARTDriver::get_system_outqueue_length() const
 #endif
 }
 
+uint32_t UARTDriver::bw_in_bytes_per_second() const
+{
+    // if connected, assume at least a 10/100Mbps connection
+    const uint32_t bitrate = (_connected && _tcp_client_addr != nullptr) ? 10E6 : _uart_baudrate;
+    return bitrate/10; // convert bits to bytes minus overhead
+};
 #endif // CONFIG_HAL_BOARD
 
