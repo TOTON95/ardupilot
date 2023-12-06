@@ -386,7 +386,7 @@ void AP_Airspeed::allocate()
             break;
 #if AP_AIRSPEED_SST_ND_ENABLED
         case TYPE_I2C_SST_ND:
-            sensor[i] = new AP_Airspeed_SST_ND(*this, i); //PENDING
+            sensor[i] = new AP_Airspeed_SST_ND(*this, i); 
             break;
 #endif
         case TYPE_I2C_SDP3X:

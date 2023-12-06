@@ -124,7 +124,7 @@ float AP_Baro_ND015A::_get_pressure(uint32_t dp_raw) const
 /*
   convert raw temperature to temperature in degrees C
  */
-float AP_Baro_ND015A::_get_temperature(int8_t dT_int, int8_t dT_frac) const
+float AP_Baro_ND015A::_get_temperature(uint8_t dT_int, uint8_t dT_frac) const
 {
     float temp  = dT_int + dT_frac/256.0;
     return temp;
@@ -132,7 +132,7 @@ float AP_Baro_ND015A::_get_temperature(int8_t dT_int, int8_t dT_frac) const
 
 void AP_Baro_ND015A::collect()
 {
-    uint8_t data[6]; //3 bytes for pressure and 2 for temperature
+    uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
     
     dev->get_semaphore()->take_blocking();
     if (!dev->read(data, sizeof(data))) {

@@ -16,9 +16,11 @@
 /*
   backend driver for airspeed from a I2C NDD0 sensor
  */
-#include "AP_Airspeed_SST_ND.h"
+#include "AP_Airspeed_config.h"
 
 #if AP_AIRSPEED_SST_ND_ENABLED
+
+#include "AP_Airspeed_SST_ND.h"
 
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/AP_HAL.h>
@@ -48,11 +50,6 @@ const float vn131cm_range[8] = {23.6, 27.5, 31.5, 35.4, 39.4, 43.3, 47.2, 51.2};
 uint8_t config_setting[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
 uint8_t sst_config_setting[2] = {0x0A, 0x07}; //bw limit set to 50Hz -> 155.35Hz, pressure range set to 0b010
 
-AP_Airspeed_SST_ND::AP_Airspeed_SST_ND(AP_Airspeed &_frontend, uint8_t _instance) :
-    AP_Airspeed_Backend(_frontend, _instance)
-{
-}
-
 // probe for a sensor
 bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
 {
@@ -63,8 +60,8 @@ bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
     WITH_SEMAPHORE(_dev->get_semaphore());
 
     _dev->set_retries(20);
-    uint8_t reading[14]= {'\0'};
-    uint8_t model[8] = {'\0'};
+    uint8_t reading[14];
+    uint8_t model[8];
 
     if(!_dev->read(reading, 14)){
         return false;
@@ -120,17 +117,17 @@ found_sensor:
 
     switch(_dev_model){
         case DevModel::SST_ND:
-            _available_ranges = 8;
+            _available_ranges = ARRAY_SIZE(vn131cm_range);
             _range_setting = 7;
             _current_range_val = vn131cm_range[_range_setting];
             break;
         case DevModel::ND210:
-            _available_ranges = 7;
+            _available_ranges = ARRAY_SIZE(nd210_range);
             _range_setting = 3;
             _current_range_val = nd210_range[_range_setting];
             break;
         case DevModel::ND005D:
-            _available_ranges = 6;
+            _available_ranges = ARRAY_SIZE(nd005d_range);
             _range_setting = 3;
             _current_range_val = nd005d_range[_range_setting];
             break;
@@ -139,10 +136,10 @@ found_sensor:
             return false;
     }
 
-    // drop to 2 retries for runtime
+    // drop to 10 retries for runtime
     _dev->set_retries(10);
     
-    _dev->register_periodic_callback(100000, //  6757 for 148Hz ODR 
+    _dev->register_periodic_callback(20000, //  6757 for 148Hz ODR 
                                      FUNCTOR_BIND_MEMBER(&AP_Airspeed_SST_ND::_collect, void));
     return true;
 }
@@ -193,23 +190,21 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
                                     (dp_raw - 8388607.5f) /
                                     15099493.5f);
     }
-    float press  = diff_press_inH2O * inH20_to_Pa;
-    return press;
+    return diff_press_inH2O * inH20_to_Pa;
 }
 
 /*
   convert raw temperature to temperature in degrees C
  */
-float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, int8_t dT_frac) const
+float AP_Airspeed_SST_ND::_get_temperature(uint8_t dT_int, uint8_t dT_frac) const
 {
-    float temp  = dT_int + dT_frac/256.0;
-    return temp;
+    return dT_int + dT_frac / 256.0;
 }
 
 // read the values from the sensor
 void AP_Airspeed_SST_ND::_collect()
 {
-    uint8_t data[6]; //2 bytes for pressure and 2 for temperature
+    uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
     _dev->get_semaphore()->take_blocking();
     if (!_dev->read(data, sizeof(data))) {
         return;
@@ -224,7 +219,7 @@ void AP_Airspeed_SST_ND::_collect()
 
     WITH_SEMAPHORE(sem);
 
-    _press_sum += press ;
+    _press_sum += press;
     _temp_sum += temp;
     _press_count += 1;
     _temp_count += 1;
@@ -257,15 +252,24 @@ void AP_Airspeed_SST_ND::update_range()
         case DevModel::ND005D:
             _current_range_val = nd005d_range[_range_setting];
             break;
-        default:
+        case DevModel::SST_ND:
+            _current_range_val = vn131cm_range[_range_setting];
+            break;
+        case DevModel::ND130:
+            _current_range_val = nd130_range[_range_setting];
+            break;
+        case DevModel::ND160:
+            _current_range_val = nd160_range[_range_setting];
+            break;
+        case DevModel::UNKNOWN:
             _current_range_val = 0.0f;
-            //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"No specific device detected/not supported\n");
+            break;
     }
     config_setting[0] = (config_setting[0] & 0xF0) + (0b0111 - _range_setting);
     WITH_SEMAPHORE(_dev->get_semaphore());
     //_dev->transfer(config_setting, 2, nullptr,0);
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
-    hal.scheduler->delay(2); // wait for the sensor to change range
+    //hal.scheduler->delay(2); // wait for the sensor to change range
 }
 
 // get the differential pressure in Pascals
@@ -273,13 +277,15 @@ bool AP_Airspeed_SST_ND::get_differential_pressure(float &pressure)
 {
     WITH_SEMAPHORE(sem);
 
-    if ((AP_HAL::millis() - _last_sample_time_ms) > 100 || _press_count == 0) {
+    if ((AP_HAL::millis() - _last_sample_time_ms) > 100) {
         return false;
     }
 
-    _pressure = _press_sum / _press_count;
-    _press_count = 0;
-    _press_sum = 0;
+    if (_press_count > 0){
+        _pressure = _press_sum / _press_count;
+        _press_count = 0;
+        _press_sum = 0;
+    }
     
     if(range_change_needed(_pressure)){
         update_range();     
@@ -292,13 +298,15 @@ bool AP_Airspeed_SST_ND::get_temperature(float &temperature)
 {
     WITH_SEMAPHORE(sem);
 
-    if ((AP_HAL::millis() - _last_sample_time_ms) > 100 || _temp_count == 0) {
+    if ((AP_HAL::millis() - _last_sample_time_ms) > 100) {
         return false;
     }
 
-    _temperature = _temp_sum / _temp_count;
-    _temp_count = 0;
-    _temp_sum = 0;
+    if (_temp_count > 0){
+        _temperature = _temp_sum / _temp_count;
+        _temp_count = 0;
+        _temp_sum = 0;
+    }
     temperature = _temperature;
     return true;
 }
