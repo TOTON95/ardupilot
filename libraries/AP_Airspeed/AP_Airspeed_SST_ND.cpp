@@ -16,9 +16,11 @@
 /*
   backend driver for airspeed from a I2C NDD0 sensor
  */
-#include "AP_Airspeed_SST_ND.h"
+#include "AP_Airspeed_config.h"
 
 #if AP_AIRSPEED_SST_ND_ENABLED
+
+#include "AP_Airspeed_SST_ND.h"
 
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/AP_HAL.h>
@@ -48,11 +50,6 @@ const float vn131cm_range[8] = {23.6, 27.5, 31.5, 35.4, 39.4, 43.3, 47.2, 51.2};
 uint8_t config_setting[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
 uint8_t sst_config_setting[2] = {0x0A, 0x07}; //bw limit set to 50Hz -> 155.35Hz, pressure range set to 0b010
 
-AP_Airspeed_SST_ND::AP_Airspeed_SST_ND(AP_Airspeed &_frontend, uint8_t _instance) :
-    AP_Airspeed_Backend(_frontend, _instance)
-{
-}
-
 // probe for a sensor
 bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
 {
@@ -63,20 +60,13 @@ bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
     WITH_SEMAPHORE(_dev->get_semaphore());
 
     _dev->set_retries(20);
-    uint8_t reading[14]= {'\0'};
-    uint8_t model[8] = {'\0'};
+    uint8_t reading[14];
 
     if(!_dev->read(reading, 14)){
         return false;
-    }else{
-        for (int i=0; i<14; i++){
-            if(i>5){
-                model[i-6]= reading[i];
-            }
-        }
     }
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Found bus %u addr 0x%02x", _dev->bus_num(), _dev->get_bus_address());
-    return matchModel(model);
+    return matchModel(&reading[6]);
 }
 
 // probe and initialise the sensor
@@ -147,34 +137,23 @@ found_sensor:
     return true;
 }
 
-bool AP_Airspeed_SST_ND::matchModel(uint8_t* reading)
+bool AP_Airspeed_SST_ND::matchModel(uint8_t* model)
 { 
-  for (int i = 0; i < 8; i++) {
-    if (reading[i] != MN_SST_ND[i]) {
-      goto probeND210;
+    static const struct {
+        char *str;
+        DevModel model;
+    } models {
+        { "VN131C", DevModel::SST_ND },
+        // fill me in
+    };
+    for (const auto &s : models) {
+        if (strncmp(s.str, model) {
+            continue;
+        }
+        _dev_model = s.model;
+        return true;
     }
-    _dev_model = DevModel::SST_ND;
-    //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"ND210 dev type detected.\n");
-    return true;
-  }
-  probeND210:
-  for (int i = 0; i < 8; i++) {
-    if (reading[i] != MN_ND210[i]) {
-      goto probeND005;
-    }
-    _dev_model = DevModel::ND210;
-    //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"ND210 dev type detected.\n");
-    return true;
-  }
-  probeND005:
-  for (int i = 0; i < 8; i++) {
-    if (reading[i] != MN_ND005D[i]) {
-      return false;
-    }
-    _dev_model = DevModel::ND005D;
-    //GCS_SEND_TEXT(MAV_SEVERITY_INFO, "ND005D dev type detected.\n");
-  }
-  return true;
+    return false;
 }
 
 /*
@@ -193,17 +172,15 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
                                     (dp_raw - 8388607.5f) /
                                     15099493.5f);
     }
-    float press  = diff_press_inH2O * inH20_to_Pa;
-    return press;
+    return diff_press_inH2O * inH20_to_Pa;
 }
 
 /*
   convert raw temperature to temperature in degrees C
  */
-float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, int8_t dT_frac) const
+float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, uint8_t dT_frac) const
 {
-    float temp  = dT_int + dT_frac/256.0;
-    return temp;
+    return dT_int + dT_frac/256.0;
 }
 
 // read the values from the sensor
@@ -216,8 +193,7 @@ void AP_Airspeed_SST_ND::_collect()
     }
     _dev->get_semaphore()->give();
 
-    uint32_t dp_raw = 0x00;
-    dp_raw = (data[1] << 16) | (data[2] << 8) | data[3];
+    const uint32_t dp_raw { (data[1] << 16) | (data[2] << 8) | data[3] };
 
     float press  = _get_pressure(dp_raw);
     float temp  = _get_temperature(data[4], data[5]);
@@ -232,12 +208,14 @@ void AP_Airspeed_SST_ND::_collect()
     _last_sample_time_ms = AP_HAL::millis();
 }
 
-bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure) {
+bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
+{
     if(last_pressure > 0.8*_current_range_val*inH20_to_Pa){ // if above 85% of range, go to the next
         if(_range_setting > 0){
             _range_setting -= 1;
             return true;
         }
+        return false;
     }else if(last_pressure < 0.25*_current_range_val*inH20_to_Pa){ // if below 15% of range, go to the next
         if(_range_setting < _available_ranges - 1){
             _range_setting += 1;
@@ -273,13 +251,15 @@ bool AP_Airspeed_SST_ND::get_differential_pressure(float &pressure)
 {
     WITH_SEMAPHORE(sem);
 
-    if ((AP_HAL::millis() - _last_sample_time_ms) > 100 || _press_count == 0) {
+    if ((AP_HAL::millis() - _last_sample_time_ms) > 100) {
         return false;
     }
 
-    _pressure = _press_sum / _press_count;
-    _press_count = 0;
-    _press_sum = 0;
+    if (_press_count > 0) {
+        _pressure = _press_sum / _press_count;
+        _press_count = 0;
+        _press_sum = 0;
+    }
     
     if(range_change_needed(_pressure)){
         update_range();     
