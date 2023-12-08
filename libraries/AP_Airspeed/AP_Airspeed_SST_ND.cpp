@@ -37,9 +37,8 @@ extern const AP_HAL::HAL &hal;
 
 const float inH20_to_Pa = 249.08f;
 
-const uint8_t MN_ND210[8] = {0x4E, 0x44, 0x32, 0x31, 0x30, 0x00, 0x00, 0x00};
-const uint8_t MN_ND005D[8] = {0x4E, 0x44, 0x30, 0x30, 0x35, 0x44, 0x00, 0x00};
-const uint8_t MN_SST_ND[8] = {0x56, 0x4E, 0x31, 0x33, 0x31, 0x43, 0x00, 0x00};
+const float LOW_RANGE_LVL = 0.25;
+const float HIGH_RANGE_LVL = 0.80;
 
 const float nd210_range[7] = {10.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.25}; // all in inH2O
 const float nd130_range[6] = {30.0, 20.0, 10.0, 5.0, 4.0, 2.0};
@@ -140,20 +139,57 @@ found_sensor:
 bool AP_Airspeed_SST_ND::matchModel(uint8_t* model)
 { 
     static const struct {
-        char *str;
+        const char *str;
         DevModel model;
-    } models {
-        { "VN131C", DevModel::SST_ND },
-        // fill me in
+    } models[] = {
+        { "VN131CM", DevModel::SST_ND },
+        { "ND210", DevModel::ND210 },
+        { "ND130", DevModel::ND130 },
+        { "ND160", DevModel::ND160 },
+        { "ND005D", DevModel::ND005D }
     };
     for (const auto &s : models) {
-        if (strncmp(s.str, model) {
+        if (strcmp(s.str, (const char*) model)) {
             continue;
         }
         _dev_model = s.model;
         return true;
     }
     return false;
+}
+
+
+/*
+  convert raw temperature to temperature in degrees C
+ */
+float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, uint8_t dT_frac) const
+{
+    return dT_int + dT_frac/256.0;
+}
+
+// read the values from the sensor
+void AP_Airspeed_SST_ND::_collect()
+{
+    uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
+    WITH_SEMAPHORE(_dev->get_semaphore());
+    if (!_dev->read(data, sizeof(data))) {
+        return;
+    }
+    _dev->get_semaphore()->give();
+
+    const uint32_t dp_raw { (uint32_t)(data[1] << 16) | (data[2] << 8) | data[3] };
+
+    float press  = _get_pressure(dp_raw);
+    float temp  = _get_temperature(data[4], data[5]);
+
+    WITH_SEMAPHORE(sem);
+
+    _press_sum += press;
+    _temp_sum += temp;
+    _press_count += 1;
+    _temp_count += 1;
+
+    _last_sample_time_ms = AP_HAL::millis();
 }
 
 /*
@@ -175,48 +211,15 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
     return diff_press_inH2O * inH20_to_Pa;
 }
 
-/*
-  convert raw temperature to temperature in degrees C
- */
-float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, uint8_t dT_frac) const
-{
-    return dT_int + dT_frac/256.0;
-}
-
-// read the values from the sensor
-void AP_Airspeed_SST_ND::_collect()
-{
-    uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
-    _dev->get_semaphore()->take_blocking();
-    if (!_dev->read(data, sizeof(data))) {
-        return;
-    }
-    _dev->get_semaphore()->give();
-
-    const uint32_t dp_raw { (data[1] << 16) | (data[2] << 8) | data[3] };
-
-    float press  = _get_pressure(dp_raw);
-    float temp  = _get_temperature(data[4], data[5]);
-
-    WITH_SEMAPHORE(sem);
-
-    _press_sum += press;
-    _temp_sum += temp;
-    _press_count += 1;
-    _temp_count += 1;
-
-    _last_sample_time_ms = AP_HAL::millis();
-}
-
 bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
 {
-    if(last_pressure > 0.8*_current_range_val*inH20_to_Pa){ // if above 85% of range, go to the next
+    if(last_pressure > HIGH_RANGE_LVL*_current_range_val*inH20_to_Pa){ // if above 80% of range, go to the next
         if(_range_setting > 0){
             _range_setting -= 1;
             return true;
         }
         return false;
-    }else if(last_pressure < 0.25*_current_range_val*inH20_to_Pa){ // if below 15% of range, go to the next
+    }else if(last_pressure < LOW_RANGE_LVL*_current_range_val*inH20_to_Pa){ // if below 25% of range, go to the next
         if(_range_setting < _available_ranges - 1){
             _range_setting += 1;
             return true;
@@ -243,9 +246,6 @@ void AP_Airspeed_SST_ND::update_range()
             break;
         case DevModel::ND160:
             _current_range_val = nd160_range[_range_setting];
-            break;
-        case DevModel::UNKNOWN:
-            _current_range_val = 0.0f;
             break;
     }
     config_setting[0] = (config_setting[0] & 0xF0) + (0b0111 - _range_setting);
