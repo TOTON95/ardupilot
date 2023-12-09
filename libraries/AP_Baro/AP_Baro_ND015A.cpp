@@ -57,42 +57,42 @@ AP_Baro_Backend *AP_Baro_ND015A::probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Dev
     return sensor;
 }
 
-bool AP_Baro_ND015A::matchModel(uint8_t* reading) {
-  for (uint8_t i = 0; i < 7; i++) {
-    if (reading[i] != mn_sst_nd_baro_sign[i]) {
-      return false;
+bool AP_Baro_ND015A::matchModel(uint8_t* model) {
+    const char *models[] {
+        "VN-BARO",
+        "ND-BARO"
+    };
+    for (const auto &s : models){
+        if(strcmp(s, (const char*) model)) {
+            continue;
+        }
+        return true;
     }
-  }
-  return true;
+    return false;
 }
 
 bool AP_Baro_ND015A::init()
 {
-    dev->get_semaphore()->take_blocking();
-    uint8_t reading[14] = {'\0'};
-    uint8_t model[7] = {'\0'};
+    WITH_SEMAPHORE(dev->get_semaphore());
+
+    dev->set_retries(10);
+    uint8_t reading[14];
     if (!dev->read(reading,sizeof(reading))) {
         return false;
-    } else {
-        for (int i = 0; i < 14; i++) {
-            if (i > 5){
-                model[i-6] = reading[i];
-            }
-        }
     }
-    if (!matchModel(model)) {
+
+    if (!matchModel(&reading[6])) {
         dev->get_semaphore()->give();
         return false;
     } else {
         instance = _frontend.register_sensor();
-        dev->set_retries(10);
         dev->set_device_type(DEVTYPE_BARO_ND015A);
         set_bus_id(instance, dev->get_bus_id());
 
         //dev->transfer(&test_config_set,1,nullptr, 0);
         //config_setup(config_set); //Setting up a initial configuration
         dev->get_semaphore()->give();
-        dev->register_periodic_callback(100000, // 6757 for 148Hz ODR
+        dev->register_periodic_callback(20000, // 6757 for 148Hz ODR
                                         FUNCTOR_BIND_MEMBER(&AP_Baro_ND015A::collect, void));
         return true;
     }
@@ -117,8 +117,7 @@ float AP_Baro_ND015A::_get_pressure(uint32_t dp_raw) const
     float press_mbar  = (float)(min_p_range + 
                                 (max_p_range - min_p_range) * 
                                 ((dp_raw - 838860.75f)/15099493.5f));
-    float press  = press_mbar * mbar_to_Pa;
-    return press;
+    return press_mbar * mbar_to_Pa;
 }
 
 /*
@@ -126,15 +125,14 @@ float AP_Baro_ND015A::_get_pressure(uint32_t dp_raw) const
  */
 float AP_Baro_ND015A::_get_temperature(uint8_t dT_int, uint8_t dT_frac) const
 {
-    float temp  = dT_int + dT_frac/256.0;
-    return temp;
+    return dT_int + dT_frac/256.0;
 }
 
 void AP_Baro_ND015A::collect()
 {
     uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
     
-    dev->get_semaphore()->take_blocking();
+    WITH_SEMAPHORE(dev->get_semaphore());
     if (!dev->read(data, sizeof(data))) {
         return;
     }
@@ -144,8 +142,7 @@ void AP_Baro_ND015A::collect()
     current_mode = data[0];
 
     //Read pressure
-    uint32_t dp_raw = 0x00;
-    dp_raw = (data[1] << 16) | (data[2] << 8) | data[3];
+    const uint32_t dp_raw { (uint32_t) (data[1] << 16) | (data[2] << 8) | data[3] };
 
     float press  = _get_pressure(dp_raw);
     float temp  = _get_temperature(data[4], data[5]);
@@ -155,22 +152,26 @@ void AP_Baro_ND015A::collect()
     _temp_sum += temp;
     _press_count += 1;
     _temp_count += 1;
+
     _last_sample_time_ms = AP_HAL::millis();
 }
 
 void AP_Baro_ND015A::update() {
     WITH_SEMAPHORE(_sem);
-    if ((AP_HAL::millis() - _last_sample_time_ms) > 100 
-        || _press_count <= 0 || _temp_count <= 0) {
+    if ((AP_HAL::millis() - _last_sample_time_ms) > 100){ 
         return;
     }
 
-    _pressure = _press_sum / _press_count;
-    _temperature = _temp_sum / _temp_count;
-    _press_count = 0;
-    _press_sum = 0;
-    _temp_count = 0;
-    _temp_sum = 0;
+    if (_temp_count > 0){
+        _temperature = _temp_sum / _temp_count;
+        _temp_count = 0;
+        _temp_sum = 0;
+    }
+    if (_press_count > 0){
+        _pressure = _press_sum / _press_count;
+        _press_count = 0;
+        _press_sum = 0;
+    }
     _copy_to_frontend(instance, _pressure, _temperature);
 }
 
