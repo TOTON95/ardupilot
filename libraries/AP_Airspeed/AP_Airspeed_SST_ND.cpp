@@ -178,11 +178,12 @@ float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, uint8_t dT_frac) const
 void AP_Airspeed_SST_ND::_collect()
 {
     uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
-    WITH_SEMAPHORE(_dev->get_semaphore());
-    if (!_dev->read(data, sizeof(data))) {
-        return;
+    {
+        WITH_SEMAPHORE(_dev->get_semaphore());
+        if (!_dev->read(data, sizeof(data))) {
+            return;
+        }
     }
-    _dev->get_semaphore()->give();
 
     const uint32_t dp_raw { (uint32_t)(data[1] << 16) | (data[2] << 8) | data[3] };
 
