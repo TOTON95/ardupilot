@@ -18,6 +18,9 @@
 #pragma once
 
 #include <AP_HAL/AP_HAL.h>
+#include <AP_Networking/AP_Networking_Config.h>
+#if AP_NETWORKING_SOCKETS_ENABLED
+
 #if HAL_OS_SOCKETS
 
 #include <fcntl.h>
@@ -28,6 +31,10 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <sys/select.h>
+#elif AP_NETWORKING_BACKEND_CHIBIOS
+#include <AP_Networking/AP_Networking_ChibiOS.h>
+#include <lwip/sockets.h>
+#endif
 
 class SocketAPM {
 public:
@@ -50,6 +57,9 @@ public:
     // return the IP address and port of the last received packet
     void last_recv_address(const char *&ip_addr, uint16_t &port) const;
 
+    // return the IP address and port of the last received packet, using caller supplied buffer
+    const char *last_recv_address(char *ip_addr_buf, uint8_t buflen, uint16_t &port) const;
+
     // return true if there is pending data for input
     bool pollin(uint32_t timeout_ms);
 
@@ -63,13 +73,28 @@ public:
     // listen has been used. A new socket is returned
     SocketAPM *accept(uint32_t timeout_ms);
 
+    // get a FD suitable for read selection
+    int get_read_fd(void) const {
+        return fd_in != -1? fd_in : fd;
+    }
+
+    bool is_connected(void) const {
+        return connected;
+    }
+
 private:
     bool datagram;
     struct sockaddr_in in_addr {};
+    bool is_multicast_address(struct sockaddr_in &addr) const;
 
     int fd = -1;
+
+    // fd_in is used for multicast UDP
+    int fd_in = -1;
+
+    bool connected;
 
     void make_sockaddr(const char *address, uint16_t port, struct sockaddr_in &sockaddr);
 };
 
-#endif // HAL_OS_SOCKETS
+#endif // AP_NETWORKING_SOCKETS_ENABLED
