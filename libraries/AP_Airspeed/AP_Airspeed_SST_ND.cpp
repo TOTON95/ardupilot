@@ -105,10 +105,6 @@ found_sensor:
     set_bus_id(_dev->get_bus_id());
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
 
-    // send default configuration
-    WITH_SEMAPHORE(_dev->get_semaphore());
-    //_dev->transfer(config_setting, 2, nullptr,0);
-
     switch(_dev_model){
         case DevModel::SST_ND:
             _available_ranges = ARRAY_SIZE(vn131cm_range);
