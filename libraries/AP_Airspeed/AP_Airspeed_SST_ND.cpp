@@ -74,7 +74,7 @@ bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
 bool AP_Airspeed_SST_ND::init()
 {
     static const uint8_t addresses[] = { ND_I2C_ADDR1, ND_I2C_ADDR2 };
-    if (bus_is_confgured()) {
+    if (bus_is_configured()) {
         for (uint8_t addr : addresses) {
             if (probe(get_bus(), addr)) {
                 goto found_sensor;
