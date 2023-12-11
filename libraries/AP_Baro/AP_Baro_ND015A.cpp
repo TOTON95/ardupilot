@@ -17,6 +17,8 @@
   backend driver for Superior Sensor's ND015A absolute pressure sensor
  */
 
+#include "AP_Baro_config.h"
+
 #if AP_BARO_ND015A_ENABLED
 
 #include "AP_Baro_ND015A.h"
