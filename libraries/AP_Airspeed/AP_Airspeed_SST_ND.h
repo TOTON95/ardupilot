@@ -42,7 +42,6 @@ public:
 
 private:
     enum DevModel : uint8_t {
-        UNKNOWN = 0,
         ND210,
         ND130,
         ND160,

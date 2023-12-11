@@ -37,18 +37,19 @@ extern const AP_HAL::HAL &hal;
 
 const float inH20_to_Pa = 249.08f;
 
-const uint8_t MN_ND210[8] = {0x4E, 0x44, 0x32, 0x31, 0x30, 0x00, 0x00, 0x00};
-const uint8_t MN_ND005D[8] = {0x4E, 0x44, 0x30, 0x30, 0x35, 0x44, 0x00, 0x00};
-const uint8_t MN_SST_ND[8] = {0x56, 0x4E, 0x31, 0x33, 0x31, 0x43, 0x00, 0x00};
+const float LOW_RANGE_LVL = 0.25;
+const float HIGH_RANGE_LVL = 0.80;
 
 const float nd210_range[7] = {10.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.25}; // all in inH2O
 const float nd130_range[6] = {30.0, 20.0, 10.0, 5.0, 4.0, 2.0};
 const float nd160_range[8] = {60.0, 50.0, 40.0, 30.0, 20.0, 10.0, 5.0, 2.5};
 const float nd005d_range[6] = {138.4, 110.72, 55.36, 27.68, 22.14, 13.84}; // converted psi to inH2O
-const float vn131cm_range[8] = {23.6, 27.5, 31.5, 35.4, 39.4, 43.3, 47.2, 51.2}; //all in inH2O
+const float vn131cm_range[8] = {51.2, 47.2, 43.3, 39.4, 35.4, 31.5, 27.5, 23.6};
 
 uint8_t config_setting[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
 uint8_t sst_config_setting[2] = {0x0A, 0x07}; //bw limit set to 50Hz -> 155.35Hz, pressure range set to 0b010
+
+const float *p_current_range;
 
 // probe for a sensor
 bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
@@ -73,7 +74,7 @@ bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
 bool AP_Airspeed_SST_ND::init()
 {
     static const uint8_t addresses[] = { ND_I2C_ADDR1, ND_I2C_ADDR2 };
-    if (bus_is_confgured()) {
+    if (bus_is_configured()) {
         for (uint8_t addr : addresses) {
             if (probe(get_bus(), addr)) {
                 goto found_sensor;
@@ -104,30 +105,36 @@ found_sensor:
     set_bus_id(_dev->get_bus_id());
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
 
-    // send default configuration
-    WITH_SEMAPHORE(_dev->get_semaphore());
-    //_dev->transfer(config_setting, 2, nullptr,0);
-
     switch(_dev_model){
         case DevModel::SST_ND:
             _available_ranges = ARRAY_SIZE(vn131cm_range);
+            p_current_range = vn131cm_range;
             _range_setting = 7;
-            _current_range_val = vn131cm_range[_range_setting];
             break;
         case DevModel::ND210:
             _available_ranges = ARRAY_SIZE(nd210_range);
-            _range_setting = 3;
-            _current_range_val = nd210_range[_range_setting];
+            p_current_range = nd210_range;
+            _range_setting = 6;
             break;
         case DevModel::ND005D:
             _available_ranges = ARRAY_SIZE(nd005d_range);
-            _range_setting = 3;
-            _current_range_val = nd005d_range[_range_setting];
+            p_current_range = nd005d_range;
+            _range_setting = 6;
             break;
-        default:
-            //GCS_SEND_TEXT(MAV_SEVERITY_ERROR,"ND not setup correctly");
-            return false;
+        case DevModel::ND160:
+            _available_ranges = ARRAY_SIZE(nd160_range);
+            p_current_range = nd160_range;
+            _range_setting = 7;
+            break;
+        case DevModel::ND130:
+            _available_ranges = ARRAY_SIZE(nd130_range);
+            p_current_range = nd130_range;
+            _range_setting = 6;
+            break;
     }
+    
+    // Set current range value
+    _current_range_val = *(p_current_range + _range_setting);
 
     // drop to 10 retries for runtime
     _dev->set_retries(10);
@@ -140,20 +147,56 @@ found_sensor:
 bool AP_Airspeed_SST_ND::matchModel(uint8_t* model)
 { 
     static const struct {
-        char *str;
+        const char *str;
         DevModel model;
-    } models {
-        { "VN131C", DevModel::SST_ND },
-        // fill me in
+    } models[] = {
+        { "VN131CM", DevModel::SST_ND },
+        { "ND210", DevModel::ND210 },
+        { "ND130", DevModel::ND130 },
+        { "ND160", DevModel::ND160 },
+        { "ND005D", DevModel::ND005D }
     };
     for (const auto &s : models) {
-        if (strncmp(s.str, model) {
+        if (strcmp(s.str, (const char*) model)) {
             continue;
         }
         _dev_model = s.model;
         return true;
     }
     return false;
+}
+
+/*
+  convert raw temperature to temperature in degrees C
+ */
+float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, uint8_t dT_frac) const
+{
+    return dT_int + dT_frac/256.0;
+}
+
+// read the values from the sensor
+void AP_Airspeed_SST_ND::_collect()
+{
+    uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
+    WITH_SEMAPHORE(_dev->get_semaphore());
+    if (!_dev->read(data, sizeof(data))) {
+        return;
+    }
+    _dev->get_semaphore()->give();
+
+    const uint32_t dp_raw { (uint32_t)(data[1] << 16) | (data[2] << 8) | data[3] };
+
+    float press  = _get_pressure(dp_raw);
+    float temp  = _get_temperature(data[4], data[5]);
+
+    WITH_SEMAPHORE(sem);
+
+    _press_sum += press;
+    _temp_sum += temp;
+    _press_count += 1;
+    _temp_count += 1;
+
+    _last_sample_time_ms = AP_HAL::millis();
 }
 
 /*
@@ -175,48 +218,15 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
     return diff_press_inH2O * inH20_to_Pa;
 }
 
-/*
-  convert raw temperature to temperature in degrees C
- */
-float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, uint8_t dT_frac) const
-{
-    return dT_int + dT_frac/256.0;
-}
-
-// read the values from the sensor
-void AP_Airspeed_SST_ND::_collect()
-{
-    uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
-    _dev->get_semaphore()->take_blocking();
-    if (!_dev->read(data, sizeof(data))) {
-        return;
-    }
-    _dev->get_semaphore()->give();
-
-    const uint32_t dp_raw { (data[1] << 16) | (data[2] << 8) | data[3] };
-
-    float press  = _get_pressure(dp_raw);
-    float temp  = _get_temperature(data[4], data[5]);
-
-    WITH_SEMAPHORE(sem);
-
-    _press_sum += press;
-    _temp_sum += temp;
-    _press_count += 1;
-    _temp_count += 1;
-
-    _last_sample_time_ms = AP_HAL::millis();
-}
-
 bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
 {
-    if(last_pressure > 0.8*_current_range_val*inH20_to_Pa){ // if above 85% of range, go to the next
+    if(last_pressure > HIGH_RANGE_LVL*_current_range_val*inH20_to_Pa){ // if above 80% of range, go to the next
         if(_range_setting > 0){
             _range_setting -= 1;
             return true;
         }
         return false;
-    }else if(last_pressure < 0.25*_current_range_val*inH20_to_Pa){ // if below 15% of range, go to the next
+    }else if(last_pressure < LOW_RANGE_LVL*_current_range_val*inH20_to_Pa){ // if below 25% of range, go to the next
         if(_range_setting < _available_ranges - 1){
             _range_setting += 1;
             return true;
@@ -228,31 +238,12 @@ bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
 // set the range of the sensor
 void AP_Airspeed_SST_ND::update_range()
 {
-    switch(_dev_model){
-        case DevModel::ND210:
-            _current_range_val = nd210_range[_range_setting];
-            break;
-        case DevModel::ND005D:
-            _current_range_val = nd005d_range[_range_setting];
-            break;
-        case DevModel::SST_ND:
-            _current_range_val = vn131cm_range[_range_setting];
-            break;
-        case DevModel::ND130:
-            _current_range_val = nd130_range[_range_setting];
-            break;
-        case DevModel::ND160:
-            _current_range_val = nd160_range[_range_setting];
-            break;
-        case DevModel::UNKNOWN:
-            _current_range_val = 0.0f;
-            break;
-    }
-    config_setting[0] = (config_setting[0] & 0xF0) + (0b0111 - _range_setting);
+    //Update range
+    _current_range_val = *(p_current_range + _range_setting);   
+    config_setting[0] = (config_setting[0] & 0xF8) + (0b0111 - _range_setting);
     WITH_SEMAPHORE(_dev->get_semaphore());
     //_dev->transfer(config_setting, 2, nullptr,0);
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
-    //hal.scheduler->delay(2); // wait for the sensor to change range
 }
 
 // get the differential pressure in Pascals
