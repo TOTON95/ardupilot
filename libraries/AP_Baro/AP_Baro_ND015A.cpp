@@ -79,31 +79,29 @@ bool AP_Baro_ND015A::init()
 
     dev->set_retries(10);
     uint8_t reading[14];
-    if (!dev->read(reading,sizeof(reading))) {
+    if (!dev->read(reading, sizeof(reading))) {
         return false;
     }
 
     if (!matchModel(&reading[6])) {
-        dev->get_semaphore()->give();
         return false;
-    } else {
-        instance = _frontend.register_sensor();
-        dev->set_device_type(DEVTYPE_BARO_ND015A);
-        set_bus_id(instance, dev->get_bus_id());
-
-        //dev->transfer(&test_config_set,1,nullptr, 0);
-        //config_setup(config_set); //Setting up a initial configuration
-        dev->get_semaphore()->give();
-        dev->register_periodic_callback(20000, // 6757 for 148Hz ODR
-                                        FUNCTOR_BIND_MEMBER(&AP_Baro_ND015A::collect, void));
-        return true;
     }
+
+    instance = _frontend.register_sensor();
+    dev->set_device_type(DEVTYPE_BARO_ND015A);
+    set_bus_id(instance, dev->get_bus_id());
+
+    //dev->transfer(&test_config_set,1,nullptr, 0);
+    //config_setup(config_set); //Setting up a initial configuration
+    dev->register_periodic_callback(20000, // 6757 for 148Hz ODR
+                                    FUNCTOR_BIND_MEMBER(&AP_Baro_ND015A::collect, void));
+    return true;
 }
 
 bool AP_Baro_ND015A::config_setup(uint8_t* setup)
 {
     const uint8_t* config = setup;
-    if(!dev->transfer(config, 2, nullptr,0)){
+    if (!dev->transfer(config, 2, nullptr,0)) {
         return false;
     }
     return true;
@@ -138,7 +136,6 @@ void AP_Baro_ND015A::collect()
     if (!dev->read(data, sizeof(data))) {
         return;
     }
-    dev->get_semaphore()->give();
 
     //Get the current sensor mode
     current_mode = data[0];
@@ -160,16 +157,16 @@ void AP_Baro_ND015A::collect()
 
 void AP_Baro_ND015A::update() {
     WITH_SEMAPHORE(_sem);
-    if ((AP_HAL::millis() - _last_sample_time_ms) > 100){ 
+    if ((AP_HAL::millis() - _last_sample_time_ms) > 100) { 
         return;
     }
 
-    if (_temp_count > 0){
+    if (_temp_count > 0) {
         _temperature = _temp_sum / _temp_count;
         _temp_count = 0;
         _temp_sum = 0;
     }
-    if (_press_count > 0){
+    if (_press_count > 0) {
         _pressure = _press_sum / _press_count;
         _press_count = 0;
         _press_sum = 0;
