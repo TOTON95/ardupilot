@@ -105,7 +105,8 @@ found_sensor:
     set_bus_id(_dev->get_bus_id());
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
 
-    switch(_dev_model){
+    switch(_dev_model)
+    {
         case DevModel::SST_ND:
             _available_ranges = ARRAY_SIZE(vn131cm_range);
             p_current_range = vn131cm_range;
@@ -134,7 +135,7 @@ found_sensor:
     }
     
     // Set current range value
-    _current_range_val = *(p_current_range + _range_setting);
+    _current_range_val = p_current_range[_range_setting];
 
     // drop to 10 retries for runtime
     _dev->set_retries(10);
@@ -182,7 +183,6 @@ void AP_Airspeed_SST_ND::_collect()
     if (!_dev->read(data, sizeof(data))) {
         return;
     }
-    _dev->get_semaphore()->give();
 
     const uint32_t dp_raw { (uint32_t)(data[1] << 16) | (data[2] << 8) | data[3] };
 
@@ -207,10 +207,10 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
     const float margin = 29491.2f;
     float diff_press_inH2O = 0.0f;
 
-    if (_dev_model != DevModel::SST_ND){
+    if (_dev_model != DevModel::SST_ND) {
         diff_press_inH2O = (dp_raw * _current_range_val) / margin;
     }
-    else{
+    else {
         diff_press_inH2O = (float)(_current_range_val *
                                     (dp_raw - 8388607.5f) /
                                     15099493.5f);
@@ -220,14 +220,18 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
 
 bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
 {
-    if(last_pressure > HIGH_RANGE_LVL*_current_range_val*inH20_to_Pa){ // if above 80% of range, go to the next
-        if(_range_setting > 0){
+    // if above 80% of range, go to the next
+    if (last_pressure > HIGH_RANGE_LVL*_current_range_val*inH20_to_Pa) { 
+        if (_range_setting > 0) {
             _range_setting -= 1;
             return true;
         }
         return false;
-    }else if(last_pressure < LOW_RANGE_LVL*_current_range_val*inH20_to_Pa){ // if below 25% of range, go to the next
-        if(_range_setting < _available_ranges - 1){
+    }
+
+    // if below 25% of range, go to the next
+    if (last_pressure < LOW_RANGE_LVL*_current_range_val*inH20_to_Pa) { 
+        if (_range_setting < _available_ranges - 1) {
             _range_setting += 1;
             return true;
         } 
@@ -236,10 +240,10 @@ bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
 }
 
 // set the range of the sensor
-void AP_Airspeed_SST_ND::update_range()
+void AP_Airspeed_SST_ND::change_range()
 {
     //Update range
-    _current_range_val = *(p_current_range + _range_setting);   
+    _current_range_val = p_current_range[_range_setting];   
     config_setting[0] = (config_setting[0] & 0xF8) + (0b0111 - _range_setting);
     WITH_SEMAPHORE(_dev->get_semaphore());
     //_dev->transfer(config_setting, 2, nullptr,0);
@@ -261,8 +265,8 @@ bool AP_Airspeed_SST_ND::get_differential_pressure(float &pressure)
         _press_sum = 0;
     }
     
-    if(range_change_needed(_pressure)){
-        update_range();     
+    if (range_change_needed(_pressure)) {
+        change_range();     
     }
     pressure = _pressure;
     return true;
@@ -276,7 +280,7 @@ bool AP_Airspeed_SST_ND::get_temperature(float &temperature)
         return false;
     }
 
-    if (_temp_count > 0){
+    if (_temp_count > 0) {
         _temperature = _temp_sum / _temp_count;
         _temp_count = 0;
         _temp_sum = 0;
