@@ -60,9 +60,9 @@ private:
 
     DevModel _dev_model;
 
-    uint8_t _range_setting;
-    uint8_t _available_ranges;
-    float _current_range_val; // inh2o
+    uint8_t range_ofs;
+    uint8_t range_max;
+    float current_range_val; // inh2o
     float _temp_sum;
     float _press_sum;
     uint32_t _temp_count;

@@ -49,7 +49,7 @@ const float vn131cm_range[8] = {51.2, 47.2, 43.3, 39.4, 35.4, 31.5, 27.5, 23.6};
 uint8_t config_setting[2] = {0x54, 0x00}; // notch filter disabled, bw limit set to 50Hz-> 148Hz odr with auto select, wdg disabled, pressure range set to 0b100
 uint8_t sst_config_setting[2] = {0x0A, 0x07}; //bw limit set to 50Hz -> 155.35Hz, pressure range set to 0b010
 
-const float *p_current_range;
+const float *range;
 
 // probe for a sensor
 bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
@@ -108,34 +108,34 @@ found_sensor:
     switch(_dev_model)
     {
         case DevModel::SST_ND:
-            _available_ranges = ARRAY_SIZE(vn131cm_range);
-            p_current_range = vn131cm_range;
-            _range_setting = 7;
+            range_max = ARRAY_SIZE(vn131cm_range);
+            range = vn131cm_range;
+            range_ofs = 7;
             break;
         case DevModel::ND210:
-            _available_ranges = ARRAY_SIZE(nd210_range);
-            p_current_range = nd210_range;
-            _range_setting = 6;
+            range_max = ARRAY_SIZE(nd210_range);
+            range = nd210_range;
+            range_ofs = 6;
             break;
         case DevModel::ND005D:
-            _available_ranges = ARRAY_SIZE(nd005d_range);
-            p_current_range = nd005d_range;
-            _range_setting = 6;
+            range_max = ARRAY_SIZE(nd005d_range);
+            range = nd005d_range;
+            range_ofs = 6;
             break;
         case DevModel::ND160:
-            _available_ranges = ARRAY_SIZE(nd160_range);
-            p_current_range = nd160_range;
-            _range_setting = 7;
+            range_max = ARRAY_SIZE(nd160_range);
+            range = nd160_range;
+            range_ofs = 7;
             break;
         case DevModel::ND130:
-            _available_ranges = ARRAY_SIZE(nd130_range);
-            p_current_range = nd130_range;
-            _range_setting = 6;
+            range_max = ARRAY_SIZE(nd130_range);
+            range = nd130_range;
+            range_ofs = 6;
             break;
     }
     
     // Set current range value
-    _current_range_val = p_current_range[_range_setting];
+    current_range_val = range[range_ofs];
 
     // drop to 10 retries for runtime
     _dev->set_retries(10);
@@ -210,10 +210,10 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
     float diff_press_inH2O = 0.0f;
 
     if (_dev_model != DevModel::SST_ND) {
-        diff_press_inH2O = (dp_raw * _current_range_val) / margin;
+        diff_press_inH2O = (dp_raw * current_range_val) / margin;
     }
     else {
-        diff_press_inH2O = (float)(_current_range_val *
+        diff_press_inH2O = (float)(current_range_val *
                                     (dp_raw - 8388607.5f) /
                                     15099493.5f);
     }
@@ -223,18 +223,18 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
 bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
 {
     // if above 80% of range, go to the next
-    if (last_pressure > HIGH_RANGE_LVL*_current_range_val*inH20_to_Pa) { 
-        if (_range_setting > 0) {
-            _range_setting -= 1;
+    if (last_pressure > HIGH_RANGE_LVL*current_range_val*inH20_to_Pa) { 
+        if (range_ofs > 0) {
+            range_ofs -= 1;
             return true;
         }
         return false;
     }
 
     // if below 25% of range, go to the next
-    if (last_pressure < LOW_RANGE_LVL*_current_range_val*inH20_to_Pa) { 
-        if (_range_setting < _available_ranges - 1) {
-            _range_setting += 1;
+    if (last_pressure < LOW_RANGE_LVL*current_range_val*inH20_to_Pa) { 
+        if (range_ofs < range_max - 1) {
+            range_ofs += 1;
             return true;
         } 
     }
@@ -245,11 +245,11 @@ bool AP_Airspeed_SST_ND::range_change_needed(float last_pressure)
 void AP_Airspeed_SST_ND::change_range()
 {
     //Update range
-    _current_range_val = p_current_range[_range_setting];   
-    config_setting[0] = (config_setting[0] & 0xF8) + (0b0111 - _range_setting);
+    current_range_val = range[range_ofs];   
+    config_setting[0] = (config_setting[0] & 0xF8) + (0b0111 - range_ofs);
     WITH_SEMAPHORE(_dev->get_semaphore());
     //_dev->transfer(config_setting, 2, nullptr,0);
-    //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", _range_setting, _current_range_val);
+    //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", range_ofs, current_range_val);
 }
 
 // get the differential pressure in Pascals
