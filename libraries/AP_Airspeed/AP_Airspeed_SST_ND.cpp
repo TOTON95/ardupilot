@@ -155,7 +155,7 @@ bool AP_Airspeed_SST_ND::matchModel(uint8_t* model)
         { "ND210", DevModel::ND210 },
         { "ND130", DevModel::ND130 },
         { "ND160", DevModel::ND160 },
-        { "ND005D", DevModel::ND005D }
+        { "ND005D", DevModel::ND005D },
     };
     for (const auto &s : models) {
         if (strcmp(s.str, (const char*) model)) {
@@ -211,8 +211,7 @@ float AP_Airspeed_SST_ND::_get_pressure(uint32_t dp_raw) const
 
     if (_dev_model != DevModel::SST_ND) {
         diff_press_inH2O = (dp_raw * current_range_val) / margin;
-    }
-    else {
+    } else {
         diff_press_inH2O = (float)(current_range_val *
                                     (dp_raw - 8388607.5f) /
                                     15099493.5f);

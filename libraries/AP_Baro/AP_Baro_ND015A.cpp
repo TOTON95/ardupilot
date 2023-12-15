@@ -62,7 +62,7 @@ AP_Baro_Backend *AP_Baro_ND015A::probe(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Dev
 bool AP_Baro_ND015A::matchModel(uint8_t* model) {
     const char *models[] {
         "VN-BARO",
-        "ND-BARO"
+        "ND-BARO",
     };
     for (const auto &s : models){
         if(strcmp(s, (const char*) model)) {
