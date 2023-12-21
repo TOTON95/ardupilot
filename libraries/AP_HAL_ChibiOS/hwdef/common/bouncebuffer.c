@@ -148,7 +148,7 @@ bool bouncebuffer_setup_write(struct bouncebuffer_t *bouncebuffer, const uint8_t
 void bouncebuffer_finish_write(struct bouncebuffer_t *bouncebuffer, const uint8_t *buf)
 {
     if (bouncebuffer && buf == bouncebuffer->dma_buf) {
-        osalDbgAssert((bouncebuffer->busy == true), "bouncebuffer finish_wite");        
+        osalDbgAssert((bouncebuffer->busy == true), "bouncebuffer finish_write");        
         bouncebuffer->busy = false;
     }
 }
