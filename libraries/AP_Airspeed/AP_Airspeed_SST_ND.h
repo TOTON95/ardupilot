@@ -70,6 +70,7 @@ private:
     float _temperature;
     float _pressure;
     uint32_t _last_sample_time_ms;
+    bool need_setup = false;
     AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
 };
 
