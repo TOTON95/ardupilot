@@ -20,13 +20,8 @@
 #if AP_AIRSPEED_SST_ND_ENABLED
 
 /*
-  backend driver for airspeed from I2C
+  backend driver for Superior Sensor's ND differential pressure sensor
  */
-
-#include <AP_HAL/AP_HAL.h>
-#include <AP_HAL/utility/OwnPtr.h>
-#include <AP_HAL/I2CDevice.h>
-#include <utility>
 
 #include "AP_Airspeed_Backend.h"
 
@@ -40,7 +35,10 @@ public:
     bool get_differential_pressure(float &pressure) override;
     bool get_temperature(float &temperature) override;
 
+    static AP_Airspeed_Backend *probe(AP_Airspeed &arspd, int devidx, AP_HAL::OwnPtr<AP_HAL::Device> dev);
+
 private:
+    AP_Airspeed_SST_ND(AP_Airspeed &arspd, int devidx,AP_HAL::OwnPtr<AP_HAL::Device> dev);
     enum DevModel : uint8_t
     {
         ND210,
@@ -71,7 +69,8 @@ private:
     float _pressure;
     uint32_t _last_sample_time_ms;
     bool need_setup = false;
-    AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
+    //AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev;
+    AP_HAL::OwnPtr<AP_HAL::Device> dev;
 };
 
 #endif // AP_AIRSPEED_SST_ND_ENABLED
