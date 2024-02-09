@@ -51,10 +51,16 @@ uint8_t sst_config_setting[2] = {0x0A, 0x07}; //bw limit set to 50Hz -> 155.35Hz
 
 const float *range;
 
+AP_Airspeed_SST_ND::AP_Airspeed_SST_ND(AP_Airspeed &arspd, int devidx, AP_HAL::OwnPtr<AP_HAL::Device> _dev)
+    : AP_Airspeed_Backend(arspd, devidx)
+    , dev(std::move(_dev))
+{
+}
+
 // probe for a sensor
 bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
 {
-    _dev = hal.i2c_mgr->get_device(bus, address);
+   /* _dev = hal.i2c_mgr->get_device(bus, address);
     if (!_dev) {
         return false;
     }
@@ -67,81 +73,84 @@ bool AP_Airspeed_SST_ND::probe(uint8_t bus, uint8_t address)
         return false;
     }
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Found bus %u addr 0x%02x", _dev->bus_num(), _dev->get_bus_address());
-    return matchModel(&reading[6]);
+    return matchModel(&reading[6]);*/
+    return false;
+}
+
+AP_Airspeed_Backend *AP_Airspeed_SST_ND::probe(AP_Airspeed &arspd, int devidx, AP_HAL::OwnPtr<AP_HAL::Device> dev)
+{
+    if (!dev) {
+        return nullptr;
+    }
+    AP_Airspeed_SST_ND *sensor = new AP_Airspeed_SST_ND(arspd, devidx, std::move(dev));
+    if (!sensor->init()) {
+        delete sensor;
+        return nullptr;
+    }
+    return sensor;
 }
 
 // probe and initialise the sensor
 bool AP_Airspeed_SST_ND::init()
 {
-    static const uint8_t addresses[] = { ND_I2C_ADDR1, ND_I2C_ADDR2 };
-    if (bus_is_configured()) {
-        for (uint8_t addr : addresses) {
-            if (probe(get_bus(), addr)) {
-                goto found_sensor;
-            }
-        }
-    } else {
-        FOREACH_I2C_EXTERNAL(bus) {
-            for (uint8_t addr : addresses) {
-                if (probe(bus, addr)) {
-                    goto found_sensor;
-                }
-            }
-        }
-        FOREACH_I2C_INTERNAL(bus) {
-            for (uint8_t addr : addresses) {
-                if (probe(bus, addr)) {
-                    goto found_sensor;
-                }
-            }
-        }
-    }
+    WITH_SEMAPHORE(dev->get_semaphore());
 
-    //GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "SST_ND[%u]: no sensor found", get_instance());
-    return false;
-
-found_sensor:
-    _dev->set_device_type(uint8_t(DevType::SST_ND));
-    set_bus_id(_dev->get_bus_id());
-    //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
-
-    switch(_dev_model)
-    {
-        case DevModel::SST_ND:
-            range_max = ARRAY_SIZE(vn131cm_range);
-            range = vn131cm_range;
-            range_ofs = 7;
-            break;
-        case DevModel::ND210:
-            range_max = ARRAY_SIZE(nd210_range);
-            range = nd210_range;
-            range_ofs = 6;
-            break;
-        case DevModel::ND005D:
-            range_max = ARRAY_SIZE(nd005d_range);
-            range = nd005d_range;
-            range_ofs = 6;
-            break;
-        case DevModel::ND160:
-            range_max = ARRAY_SIZE(nd160_range);
-            range = nd160_range;
-            range_ofs = 7;
-            break;
-        case DevModel::ND130:
-            range_max = ARRAY_SIZE(nd130_range);
-            range = nd130_range;
-            range_ofs = 6;
-            break;
+    dev->set_retries(10);
+    uint8_t reading[14];
+    if (!dev->read(reading, sizeof(reading))) {
+        return false;
     }
     
+    if (!matchModel(&reading[6])) {
+        return false;
+    }
+
+    //TODO: Clean code
+
+    dev->set_device_type(uint8_t(DevType::SST_ND));
+    set_bus_id(dev->get_bus_id());
+    // GCS_SEND_TEXT(MAV_SEVERITY_INFO,"SST_ND[%u]: Found bus %u addr 0x%02x", get_instance(), _dev->bus_num(), _dev->get_bus_address());
+
+    switch (_dev_model)
+    {
+    case DevModel::SST_ND:
+        range_max = ARRAY_SIZE(vn131cm_range);
+        range = vn131cm_range;
+        range_ofs = 7;
+        break;
+    case DevModel::ND210:
+        range_max = ARRAY_SIZE(nd210_range);
+        range = nd210_range;
+        range_ofs = 6;
+        break;
+    case DevModel::ND005D:
+        range_max = ARRAY_SIZE(nd005d_range);
+        range = nd005d_range;
+        range_ofs = 6;
+        break;
+    case DevModel::ND160:
+        range_max = ARRAY_SIZE(nd160_range);
+        range = nd160_range;
+        range_ofs = 7;
+        break;
+    case DevModel::ND130:
+        range_max = ARRAY_SIZE(nd130_range);
+        range = nd130_range;
+        range_ofs = 6;
+        break;
+    }
+
     // Set current range value
     current_range_val = range[range_ofs];
 
     // drop to 10 retries for runtime
-    _dev->set_retries(10);
-    
-    _dev->register_periodic_callback(20000, //  6757 for 148Hz ODR 
-                                     FUNCTOR_BIND_MEMBER(&AP_Airspeed_SST_ND::_collect, void));
+    dev->set_retries(10);
+
+    // Setup a variable for initial configuration
+    need_setup = true;
+
+    dev->register_periodic_callback(20000, //  6757 for 148Hz ODR
+                                    FUNCTOR_BIND_MEMBER(&AP_Airspeed_SST_ND::_collect, void));
     return true;
 }
 
@@ -179,11 +188,15 @@ float AP_Airspeed_SST_ND::_get_temperature(int8_t dT_int, uint8_t dT_frac) const
 void AP_Airspeed_SST_ND::_collect()
 {
     uint8_t data[6]; //1 byte for mode, 3 bytes for pressure and 2 for temperature
-    {
-        WITH_SEMAPHORE(_dev->get_semaphore());
-        if (!_dev->read(data, sizeof(data))) {
-            return;
-        }
+    WITH_SEMAPHORE(dev->get_semaphore());
+    if (!dev->read(data, sizeof(data))) {
+        return;
+    }
+
+    // Setup initial configuration
+    if (need_setup) {
+        dev->transfer(sst_config_setting, 2, nullptr,0);
+        need_setup = false;
     }
 
     const uint32_t dp_raw { (uint32_t)(data[1] << 16) | (data[2] << 8) | data[3] };
@@ -246,7 +259,7 @@ void AP_Airspeed_SST_ND::change_range()
     //Update range
     current_range_val = range[range_ofs];   
     config_setting[0] = (config_setting[0] & 0xF8) + (0b0111 - range_ofs);
-    WITH_SEMAPHORE(_dev->get_semaphore());
+    WITH_SEMAPHORE(dev->get_semaphore());
     //_dev->transfer(config_setting, 2, nullptr,0);
     //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Range changed to %d: %.2f inH2O\n", range_ofs, current_range_val);
 }
