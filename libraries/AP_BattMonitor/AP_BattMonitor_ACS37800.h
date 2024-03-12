@@ -20,6 +20,8 @@
 #include <utility>
 #include "AP_BattMonitor_Backend.h"
 
+#if AP_BATTERY_ACS37800_ENABLED
+
 class AP_BattMonitor_ACS37800 : public AP_BattMonitor_Backend
 {
 public:
@@ -56,3 +58,5 @@ private:
     bool write_word(const uint8_t reg, const uint32_t data) const;
     bool read_word(const uint8_t reg, uint32_t& data) const;
 };
+
+#endif // AP_BATTERY_ACS37800_ENABLED

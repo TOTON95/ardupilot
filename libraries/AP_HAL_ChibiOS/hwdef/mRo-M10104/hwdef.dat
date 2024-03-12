@@ -87,8 +87,11 @@ define DMA_RESERVE_SIZE 2048
 #define HAL_PERIPH_ENABLE_BARO
 define HAL_PERIPH_ENABLE_BATTERY
 
-define HAL_BATT_MONITOR_DEFAULT 25
+define HAL_PERIPH_ENABLE_BATTERY
+define AP_BATTERY_ACS37800_ENABLED 1
+define HAL_BATT_MONITOR_DEFAULT 30
 define HAL_BATT_I2C_BUS 1
+define AP_PERIPH_BATTERY_MODEL_NAME "ACSXXXXX-BatMon"
 
 # keep ROMFS uncompressed as we don't have enough RAM
 # to uncompress the bootloader at runtime

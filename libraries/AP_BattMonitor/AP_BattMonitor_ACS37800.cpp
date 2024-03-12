@@ -12,10 +12,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "AP_BattMonitor_ACS37800.h"
+#include "AP_BattMonitor_config.h"
+
+#if AP_BATTERY_ACS37800_ENABLED
+
 #include <GCS_MAVLink/GCS.h>
 #include <AP_HAL/utility/sparse-endian.h>
-#include <stdio.h>
+#include "AP_BattMonitor_ACS37800.h"
 extern const AP_HAL::HAL& hal;
 
 typedef struct
@@ -101,8 +104,6 @@ void AP_BattMonitor_ACS37800::init(void)
     if (!_dev) {
         return;
     }else {
-        ::printf("ACS37800-> Found device!\n");
-
         _ctr = 0;
         WITH_SEMAPHORE(_dev->get_semaphore());
         // Configure ACS for DC operation 
@@ -183,5 +184,4 @@ bool AP_BattMonitor_ACS37800::read_word(const uint8_t reg, uint32_t& data) const
     return _dev->read_registers(reg, (uint8_t *)&data, sizeof(data));
 }
 
-
-
+#endif // AP_BATTERY_ACS37800_ENABLED
