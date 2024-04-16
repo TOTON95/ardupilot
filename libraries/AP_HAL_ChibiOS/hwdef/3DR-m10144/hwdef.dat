@@ -31,6 +31,11 @@ define HAL_USE_SERIAL FALSE
 PC13 LED_ACTIVITY OUTPUT LOW
 define HAL_LED_ON 0
 
+# No analog input
+define HAL_USE_ADC FALSE
+define STM32_ADC_USE_ADC1 FALSE
+define HAL_DISABLE_ADC_DRIVER FALSE
+
 # MAIN_STACK is stack of initial thread and ISRs
 MAIN_STACK 0x200
 
