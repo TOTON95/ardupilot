@@ -4,13 +4,13 @@
 MCU STM32G474 STM32G474xx
 
 # bootloader starts firmware at 26kB (24k bootloader + 2k (STORAGE_FLASH_PAGES))
-FLASH_RESERVE_START_KB 24
+FLASH_RESERVE_START_KB 40
 
-FLASH_SIZE_KB 128 
+FLASH_SIZE_KB 512
 
 # parameter storage
-STORAGE_FLASH_PAGE 62
-define HAL_STORAGE_SIZE 800
+STORAGE_FLASH_PAGE 16
+define HAL_STORAGE_SIZE 2000
 
 # board ID for firmware load
 APJ_BOARD_ID 1122
@@ -20,6 +20,10 @@ env AP_PERIPH 1
 
 # crystal frequency
 OSCILLATOR_HZ 24000000
+define STM32_HSE_BYPASS
+
+# enable external tcxo
+PA4 TCXO_EN OUTPUT HIGH
 
 # serial
 define HAL_NO_UARTDRIVER
@@ -27,7 +31,7 @@ define HAL_USE_SERIAL FALSE
 
 # LED
 PC13 LED_ACTIVITY OUTPUT HIGH
-define HAL_LED_ON 0
+define HAL_LED_ON 1
 
 # No analog input
 define HAL_USE_ADC FALSE
@@ -35,10 +39,10 @@ define STM32_ADC_USE_ADC1 FALSE
 define HAL_DISABLE_ADC_DRIVER FALSE
 
 # MAIN_STACK is stack of initial thread and ISRs
-MAIN_STACK 0x200
+#MAIN_STACK 0x200
 
 # PROCESS_STACK controls stack for main thread
-PROCESS_STACK 0xA00
+#PROCESS_STACK 0xA00
 define HAL_DISABLE_LOOP_DELAY
 
 # enable CAN support
